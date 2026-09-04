@@ -1,0 +1,15 @@
+# Shared worker dependencies (no torch — cài riêng trong Dockerfile)
+-r requirements-web.txt
+
+Pillow>=10.0.0
+PyMuPDF>=1.24.0
+pdf2image>=1.17.0
+numpy>=1.26.0
+opencv-python-headless>=4.9.0
+google-cloud-vision>=3.7.0
+google-cloud-documentai>=2.29.0
+openai>=1.40.0
+google-generativeai>=0.8.0
+requests>=2.31.0
+huggingface_hub>=0.20.0
+doclayout-yolo==0.0.4

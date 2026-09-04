@@ -1,0 +1,73 @@
+{% extends "admin/change_list.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .dataset-chunk-text {
+    margin: 0;
+    max-width: 72rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: inherit;
+  }
+  #result_list tbody tr {
+    cursor: pointer;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if chunk_document %}
+<div class="mb-4 flex flex-wrap items-center gap-3">
+  <a
+    href="{{ chunk_documents_url }}"
+    class="inline-flex items-center rounded-default border border-base-300 px-3 py-1.5 text-sm font-medium hover:bg-base-50 dark:border-base-700 dark:hover:bg-base-800"
+  >
+    ← Về danh sách phân đoạn
+  </a>
+  {% if chunk_add_url %}
+  <a
+    href="{{ chunk_add_url }}"
+    class="inline-flex items-center rounded-default px-3 py-1.5 text-sm font-semibold text-white"
+    style="background:#7c3aed;"
+  >
+    Thêm phân đoạn
+  </a>
+  {% endif %}
+  {% if chunk_sync_url %}
+  <form method="post" action="{{ chunk_sync_url }}" class="inline">
+    {% csrf_token %}
+    <button
+      type="submit"
+      class="inline-flex items-center rounded-default px-3 py-1.5 text-sm font-semibold text-white"
+      style="background:{% if chunk_sync_enabled %}#0f766e{% else %}#94a3b8{% endif %};"
+      {% if not chunk_sync_enabled %}disabled title="{{ chunk_sync_disabled_reason }}"{% endif %}
+    >
+      Nạp RAGFlow
+    </button>
+  </form>
+  {% endif %}
+  <span class="text-sm text-base-500 dark:text-base-400">
+    {{ chunk_document.title }}{% if chunk_document.catalog_code %} · {{ chunk_document.catalog_code }}{% endif %}
+    {% if chunk_ragflow_status %} · {{ chunk_ragflow_status }}{% endif %}
+    — thêm mới, nhấp đôi để sửa, chọn rồi xóa hàng loạt.
+  </span>
+</div>
+{% endif %}
+{{ block.super }}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const table = document.querySelector("#result_list");
+    if (!table) return;
+    table.addEventListener("dblclick", function (event) {
+      const row = event.target.closest("tbody tr");
+      if (!row || event.target.closest("input, button, a, label")) return;
+      const link = row.querySelector("th a, td a");
+      if (link && link.href) window.location = link.href;
+    });
+  });
+</script>
+{% endblock %}

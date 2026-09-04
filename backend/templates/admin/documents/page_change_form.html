@@ -1,0 +1,571 @@
+{% extends "admin/change_form.html" %}
+{% load i18n static %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .page-review-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: stretch;
+    min-height: calc(100vh - 11rem);
+  }
+  @media (max-width: 1024px) {
+    .page-review-grid {
+      grid-template-columns: 1fr;
+      min-height: auto;
+    }
+  }
+  .page-review-panel {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+    height: 100%;
+    align-self: stretch;
+    padding: 0.75rem;
+  }
+  .page-review-panel__header {
+    display: grid;
+    grid-template-rows: 1.375rem 1.875rem;
+    row-gap: 0.25rem;
+    margin-bottom: 0.5rem;
+    flex-shrink: 0;
+  }
+  .page-review-panel__header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-height: 1.375rem;
+  }
+  .page-review-panel__header-row h3 {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.375rem;
+    color: #334155;
+  }
+  html.dark .page-review-panel__header-row h3 {
+    color: #e2e8f0;
+  }
+  .page-review-panel__hint {
+    font-size: 0.75rem;
+    color: #64748b;
+    white-space: nowrap;
+  }
+  .page-bbox-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #475569;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  html.dark .page-bbox-toggle {
+    color: #cbd5e1;
+  }
+  .page-bbox-toggle input {
+    accent-color: #7c3aed;
+    cursor: pointer;
+  }
+  .page-image-viewer__stage {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
+  }
+  .page-image-viewer__img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+  }
+  html.dark .page-image-viewer__img {
+    border-color: #334155;
+  }
+  .page-image-viewer__boxes {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .page-image-viewer__boxes.is-hidden {
+    visibility: hidden;
+  }
+  .page-bbox {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid var(--bbox-color, #94a3b8);
+    background: color-mix(in srgb, var(--bbox-color, #94a3b8) 12%, transparent);
+    border-radius: 2px;
+  }
+  .page-bbox::after {
+    content: attr(data-order);
+    position: absolute;
+    top: 0;
+    left: 0;
+    min-width: 1.125rem;
+    padding: 0 0.2rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1.125rem;
+    text-align: center;
+    color: #fff;
+    background: var(--bbox-color, #94a3b8);
+    border-bottom-right-radius: 3px;
+  }
+  .page-image-viewer__note {
+    margin-top: 0.5rem;
+    color: #64748b;
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  html.dark .page-image-viewer__note {
+    color: #94a3b8;
+  }
+  html.dark .page-review-panel__hint {
+    color: #94a3b8;
+  }
+  .page-review-panel__header-sub {
+    display: flex;
+    align-items: center;
+    min-height: 1.875rem;
+    overflow: hidden;
+  }
+  .page-review-panel__header-sub--editor {
+    justify-content: space-between;
+    gap: 0.5rem;
+    overflow: visible;
+  }
+  .page-review-panel__header-sub--editor .page-review-panel__hint {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .page-source-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    white-space: nowrap;
+  }
+  .page-source-badge--cleaned {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .page-source-badge--ocr {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  html.dark .page-source-badge--cleaned {
+    background: #14532d;
+    color: #bbf7d0;
+  }
+  html.dark .page-source-badge--ocr {
+    background: #78350f;
+    color: #fde68a;
+  }
+  .page-md-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+  }
+  .page-md-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    cursor: pointer;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    background: #fff;
+  }
+  .page-md-action--clean {
+    color: #0f766e;
+    border-color: #99f6e4;
+  }
+  .page-md-action--clean:hover {
+    background: #f0fdfa;
+  }
+  html.dark .page-md-action--clean {
+    background: #0f172a;
+    color: #5eead4;
+    border-color: #115e59;
+  }
+  html.dark .page-md-action--clean:hover {
+    background: #134e4a;
+  }
+  .page-md-action--restore {
+    color: #b45309;
+    border-color: #fcd34d;
+  }
+  .page-md-action--restore:hover {
+    background: #fffbeb;
+  }
+  html.dark .page-md-action--restore {
+    background: #0f172a;
+    color: #fcd34d;
+    border-color: #854d0e;
+  }
+  html.dark .page-md-action--restore:hover {
+    background: #713f12;
+  }
+  .page-md-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .page-content-types {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.375rem;
+    color: #475569;
+  }
+  html.dark .page-content-types {
+    color: #cbd5e1;
+  }
+  .page-content-types__empty {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+  html.dark .page-content-types__empty {
+    color: #94a3b8;
+  }
+  .page-content-types__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .page-content-types__swatch {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .page-content-types__count {
+    font-weight: 500;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+  html.dark .page-content-types__count {
+    color: #94a3b8;
+  }
+  .page-review-panel__body {
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .page-review-panel__body--editor {
+    padding-bottom: 0;
+  }
+  #page-text-md-editor {
+    flex: 1 1 auto;
+    min-height: 100%;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+  }
+  /* Thanh hành động cố định cuối vùng nội dung */
+  .page-submit-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 50;
+    margin: 1.25rem -1.5rem -1rem;
+    padding: 0.75rem 1.5rem;
+    background: #ffffff;
+    border-top: 1px solid #cbd5e1;
+    box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.1);
+  }
+  html.dark .page-submit-bar {
+    background: #0f172a;
+    border-top-color: #334155;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .page-submit-bar__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 1rem;
+    width: 100%;
+    min-height: 2.75rem;
+  }
+  .page-submit-bar__left {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .page-submit-bar__center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .page-submit-bar__right {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .page-submit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .page-submit-btn--primary {
+    background: #7c3aed;
+    color: #ffffff;
+    border-color: #7c3aed;
+  }
+  .page-submit-btn--primary:hover {
+    background: #6d28d9;
+  }
+  .page-submit-btn--ocr {
+    background: #fff;
+    color: #6d28d9;
+    border-color: #c4b5fd;
+    margin-right: 0.5rem;
+  }
+  html.dark .page-submit-btn--ocr {
+    background: #0f172a;
+    color: #c4b5fd;
+    border-color: #5b21b6;
+  }
+  .page-submit-btn--ocr:hover {
+    background: #f5f3ff;
+  }
+  html.dark .page-submit-btn--ocr:hover {
+    background: #2e1065;
+  }
+  .page-submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .page-submit-btn--danger {
+    background: #ffffff;
+    color: #dc2626;
+    border-color: #fca5a5;
+  }
+  html.dark .page-submit-btn--danger {
+    background: #0f172a;
+    color: #f87171;
+    border-color: #991b1b;
+  }
+  .page-submit-btn--danger:hover {
+    background: #fef2f2;
+  }
+  html.dark .page-submit-btn--danger:hover {
+    background: #450a0a;
+  }
+  .page-footer-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .page-footer-nav__btn {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #334155;
+    background: #ffffff;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  html.dark .page-footer-nav__btn {
+    background: #1e293b;
+    border-color: #475569;
+    color: #e2e8f0;
+  }
+  .page-footer-nav__btn:hover {
+    background: #f8fafc;
+  }
+  html.dark .page-footer-nav__btn:hover {
+    background: #334155;
+  }
+  .page-footer-nav__btn--disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .page-footer-nav__slider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    min-width: 11rem;
+    max-width: 16rem;
+  }
+  .page-footer-nav__counter {
+    font-size: 0.75rem;
+    color: #64748b;
+    white-space: nowrap;
+  }
+  html.dark .page-footer-nav__counter {
+    color: #94a3b8;
+  }
+  .page-footer-nav__counter strong {
+    color: #1e293b;
+  }
+  html.dark .page-footer-nav__counter strong {
+    color: #f1f5f9;
+  }
+  .page-footer-nav__range {
+    width: 100%;
+    cursor: pointer;
+    accent-color: #7c3aed;
+  }
+  @media (max-width: 900px) {
+    .page-submit-bar__inner {
+      grid-template-columns: 1fr;
+      row-gap: 0.75rem;
+    }
+    .page-submit-bar__left,
+    .page-submit-bar__center,
+    .page-submit-bar__right {
+      justify-content: center;
+    }
+    .page-footer-nav {
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block field_sets %}
+{% for field in adminform.form.hidden_fields %}{{ field }}{% endfor %}
+
+<div class="mb-4 flex flex-wrap gap-3 text-sm text-base-600 dark:text-base-400">
+  <span><strong>Sách:</strong> {{ original.book.title }}</span>
+  <span><strong>Trang:</strong> {{ original.page_number }}</span>
+  <span><strong>OCR:</strong> {{ original.get_ocr_mode_display }}</span>
+  <span style="display:inline-flex;align-items:center;gap:0.4rem;flex-wrap:wrap;"><strong>Công cụ:</strong> {{ page_ocr_tool_html }}</span>
+  <span><strong>Kích thước:</strong> {{ original.width|floatformat:0 }}×{{ original.height|floatformat:0 }} px</span>
+</div>
+
+<div class="page-review-grid">
+  <div class="page-review-panel rounded-default border border-base-200 bg-white dark:border-base-800 dark:bg-base-900">
+    <div class="page-review-panel__header">
+      <div class="page-review-panel__header-row">
+        <h3>Ảnh trang</h3>
+        {% if page_has_boxes %}
+        <label class="page-bbox-toggle" for="page-bbox-toggle">
+          <input type="checkbox" id="page-bbox-toggle" checked />
+          <span>Bounding box</span>
+        </label>
+        {% endif %}
+      </div>
+      <div class="page-review-panel__header-sub">{{ page_content_types_html }}</div>
+    </div>
+    <div class="page-review-panel__body">
+      {{ page_preview_html }}
+    </div>
+  </div>
+
+  <div class="page-review-panel rounded-default border border-base-200 bg-white dark:border-base-800 dark:bg-base-900">
+    <div class="page-review-panel__header">
+      <div class="page-review-panel__header-row">
+        <h3>Chỉnh sửa Markdown</h3>
+        {% if page_text_source == "cleaned" %}
+        <span class="page-source-badge page-source-badge--cleaned">Đang hiển thị: bản làm sạch</span>
+        {% else %}
+        <span class="page-source-badge page-source-badge--ocr">Đang hiển thị: OCR gốc</span>
+        {% endif %}
+      </div>
+      <div class="page-review-panel__header-sub page-review-panel__header-sub--editor">
+        <span class="page-review-panel__hint">Giữ xuống dòng · bảng dùng cú pháp |</span>
+        <div class="page-md-actions">
+          <button
+            type="submit"
+            name="{{ clean_text_action_name|default:'documents_page_clean_text' }}"
+            class="page-md-action page-md-action--clean"
+            {% if can_clean_text %}
+            onclick="return confirm('Làm sạch trang này từ bản OCR gốc. Bản làm sạch hiện tại (nếu có) sẽ bị ghi đè. OCR gốc được giữ nguyên. Tiếp tục?');"
+            {% else %}
+            disabled
+            title="{{ clean_text_blocked_reason }}"
+            {% endif %}
+          >Làm sạch trang này</button>
+          {% if has_cleaned_text %}
+          <button
+            type="submit"
+            name="{{ restore_ocr_action_name|default:'documents_page_restore_ocr' }}"
+            class="page-md-action page-md-action--restore"
+            onclick="return confirm('Bỏ bản làm sạch của trang này và hiện lại kết quả OCR gốc?');"
+          >Dùng lại OCR</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="page-review-panel__body page-review-panel__body--editor">
+      {% with field=adminform.form.text_md %}
+      {% if field.errors %}<ul class="errorlist mb-2 shrink-0">{{ field.errors }}</ul>{% endif %}
+      {{ field }}
+      {% endwith %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block after_field_sets %}
+{% include "admin/documents/page_submit_line.html" with show_delete_link=True %}
+<script>
+(function () {
+  const toggle = document.getElementById("page-bbox-toggle");
+  const layer = document.getElementById("page-bbox-layer");
+  if (!toggle || !layer) return;
+
+  const storageKey = "pageReviewShowBbox";
+
+  function apply(show) {
+    layer.classList.toggle("is-hidden", !show);
+    toggle.checked = show;
+  }
+
+  const saved = localStorage.getItem(storageKey);
+  apply(saved === null ? true : saved === "1");
+
+  toggle.addEventListener("change", function () {
+    const show = toggle.checked;
+    apply(show);
+    localStorage.setItem(storageKey, show ? "1" : "0");
+  });
+})();
+</script>
+{% endblock %}
+
+{% block footer %}{% endblock %}
+
+{% block submit_buttons_top %}{% endblock %}
+
+{% block submit_buttons_bottom %}{% endblock %}

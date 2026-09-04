@@ -1,0 +1,136 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .bulk-status-wrap {
+    max-width: 36rem;
+    margin: 0 auto;
+    padding: 0 0 2rem;
+  }
+  .bulk-status-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    padding: 1.25rem 1.4rem;
+  }
+  html.dark .bulk-status-card {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  .bulk-status-card p {
+    margin: 0 0 1rem;
+    font-size: 0.875rem;
+    color: #475569;
+  }
+  html.dark .bulk-status-card p {
+    color: #94a3b8;
+  }
+  .bulk-status-card label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+    color: #334155;
+  }
+  html.dark .bulk-status-card label {
+    color: #e2e8f0;
+  }
+  .bulk-status-card select {
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+  }
+  html.dark .bulk-status-card select {
+    background: #1e293b;
+    border-color: #475569;
+    color: #f1f5f9;
+  }
+  .bulk-status-books {
+    margin: 0 0 1rem;
+    padding-left: 1.15rem;
+    font-size: 0.8125rem;
+    color: #334155;
+    max-height: 14rem;
+    overflow: auto;
+  }
+  html.dark .bulk-status-books {
+    color: #cbd5e1;
+  }
+  .bulk-status-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .bulk-status-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 0.45rem 0.95rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .bulk-status-btn--primary {
+    background: #7c3aed;
+    color: #fff;
+  }
+  .bulk-status-btn--secondary {
+    background: #e2e8f0;
+    color: #334155;
+  }
+  html.dark .bulk-status-btn--secondary {
+    background: #334155;
+    color: #e2e8f0;
+  }
+  .bulk-status-hint {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin: 0 0 1rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bulk-status-wrap">
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="bulk_change_status">
+    {% for obj in queryset %}
+    <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk }}">
+    {% endfor %}
+
+    <div class="bulk-status-card">
+      <p>Đổi trạng thái cho <strong>{{ queryset|length }}</strong> sách đã chọn:</p>
+      <ul class="bulk-status-books">
+        {% for obj in queryset %}
+        <li>{{ obj.title }} — {{ obj.get_status_display }}</li>
+        {% endfor %}
+      </ul>
+
+      <label for="id_new_status">Trạng thái mới</label>
+      <select id="id_new_status" name="new_status" required>
+        {% for value, label in status_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <p class="bulk-status-hint">
+        Đổi tay không tự chạy OCR hay làm sạch.
+        Sách đang OCR sẽ bị hủy task nếu chuyển sang trạng thái khác.
+      </p>
+
+      <div class="bulk-status-actions">
+        <button type="submit" name="apply" value="1" class="bulk-status-btn bulk-status-btn--primary">
+          Cập nhật trạng thái
+        </button>
+        <a href="{{ changelist_url }}" class="bulk-status-btn bulk-status-btn--secondary">Hủy</a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

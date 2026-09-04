@@ -1,0 +1,151 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .ocr-model-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+  }
+  .ocr-model-picker__select {
+    min-width: 16rem;
+    max-width: 100%;
+    flex: 1 1 16rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0.45rem 0.65rem;
+    font-size: 0.875rem;
+    background: #fff;
+  }
+  html.dark .ocr-model-picker__select {
+    background: #1e293b;
+    border-color: #475569;
+    color: #f1f5f9;
+  }
+  .ocr-model-picker__btn {
+    border: 1px solid #7c3aed;
+    background: #7c3aed;
+    color: #fff;
+    border-radius: 6px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ocr-model-picker__btn:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
+  .ocr-model-picker__status {
+    width: 100%;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+  html.dark .ocr-model-picker__status {
+    color: #94a3b8;
+  }
+  .ocr-model-picker__status--error {
+    color: #dc2626;
+  }
+</style>
+<script>
+(function () {
+  const FETCH_URL = "{{ fetch_models_url|escapejs }}";
+
+  function qs(sel) { return document.querySelector(sel); }
+  function providerSelect() { return qs("#id_provider"); }
+  function modelInput() { return qs("#id_model"); }
+
+  function setStatus(msg, isError) {
+    const el = qs("#ocr-model-status");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.classList.toggle("ocr-model-picker__status--error", !!isError);
+  }
+
+  function fillSelect(models, selected) {
+    const select = qs("#ocr-model-select");
+    if (!select) return;
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = models.length ? "— Dùng model mặc định của LLM —" : "— Chưa tải model —";
+    select.appendChild(placeholder);
+    models.forEach(function (name) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (selected && selected === name) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  async function loadModels() {
+    const btn = qs("#ocr-load-models-btn");
+    const providerId = providerSelect()?.value || "";
+    if (!providerId) {
+      setStatus("Chọn LLM trước, rồi tải danh sách model.", true);
+      fillSelect([]);
+      return;
+    }
+    setStatus("Đang tải danh sách model…");
+    if (btn) btn.disabled = true;
+    try {
+      const params = new URLSearchParams({ object_id: providerId });
+      const resp = await fetch(FETCH_URL + "?" + params.toString(), {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || "Không tải được danh sách model.");
+      }
+      fillSelect(data.models || [], modelInput()?.value || "");
+      setStatus(
+        data.hint ||
+          ((data.models || []).length
+            ? "Đã tải " + data.models.length + " model. Để trống = model mặc định của LLM."
+            : "Không tìm thấy model.")
+      );
+    } catch (err) {
+      setStatus(err.message || String(err), true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function mountPicker() {
+    const modelField = qs(".field-model");
+    if (!modelField || qs("#ocr-model-picker-wrap")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "ocr-model-picker-wrap";
+    wrap.className = "ocr-model-picker";
+    wrap.innerHTML =
+      '<button type="button" id="ocr-load-models-btn" class="ocr-model-picker__btn">Tải danh sách model</button>' +
+      '<select id="ocr-model-select" class="ocr-model-picker__select"></select>' +
+      '<div id="ocr-model-status" class="ocr-model-picker__status"></div>';
+    modelField.appendChild(wrap);
+
+    qs("#ocr-load-models-btn").addEventListener("click", loadModels);
+    qs("#ocr-model-select").addEventListener("change", function () {
+      if (modelInput()) modelInput().value = this.value;
+    });
+
+    const current = modelInput()?.value || "";
+    if (current) fillSelect([current], current);
+
+    providerSelect()?.addEventListener("change", function () {
+      if (modelInput()) modelInput().value = "";
+      fillSelect([]);
+      setStatus("LLM đã đổi — bấm «Tải danh sách model» nếu muốn chọn model riêng.");
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", mountPicker);
+})();
+</script>
+{% endblock %}

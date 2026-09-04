@@ -1,0 +1,17 @@
+<div class="md-clean-panel" style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:1rem 1.25rem;margin:0 0 1rem;">
+  <h3 style="margin:0 0 0.5rem;font-size:1rem;font-weight:700;">Upload hàng loạt</h3>
+  <p style="margin:0 0 0.75rem;font-size:0.8125rem;color:#64748b;">
+    Chọn nhiều PDF để đưa vào danh sách tạm.
+    Sau đó chọn các mục và chạy «Tạo sách từ danh sách tạm» — hệ thống OCR trang đầu, LLM đặt tên và lọc trùng với sách đã có.
+    File trùng sẽ bị xóa để tiết kiệm bộ nhớ.
+    Đang chờ: <strong>{{ pending_count }}</strong>
+    {% if processing_count %} · đang xử lý: <strong>{{ processing_count }}</strong>{% endif %}
+  </p>
+  <form method="post" action="{{ upload_url }}" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+    {% csrf_token %}
+    <input type="file" name="pdfs" accept=".pdf,application/pdf" multiple required>
+    <button type="submit" style="border:none;border-radius:6px;padding:0.45rem 0.9rem;background:#7c3aed;color:#fff;font-weight:600;font-size:0.8125rem;cursor:pointer;">
+      Thêm vào danh sách tạm
+    </button>
+  </form>
+</div>

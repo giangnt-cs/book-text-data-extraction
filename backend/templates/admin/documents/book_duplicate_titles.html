@@ -1,0 +1,91 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .dup-wrap { max-width: 52rem; margin: 0 auto; padding: 0 0 2rem; }
+  .dup-card {
+    border: 1px solid #e2e8f0; border-radius: 10px; background: #fff;
+    padding: 1.1rem 1.25rem; margin-bottom: 1rem;
+  }
+  html.dark .dup-card { background: #0f172a; border-color: #334155; }
+  .dup-card h3 { margin: 0 0 0.65rem; font-size: 1rem; }
+  .dup-meta { font-size: 0.8125rem; color: #64748b; margin: 0 0 1rem; }
+  .dup-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+  .dup-btn {
+    border: none; border-radius: 6px; padding: 0.45rem 0.9rem;
+    font-size: 0.8125rem; font-weight: 600; cursor: pointer; text-decoration: none;
+    display: inline-block;
+  }
+  .dup-btn--primary { background: #7c3aed; color: #fff; }
+  .dup-btn--danger { background: #b91c1c; color: #fff; }
+  .dup-btn--secondary { background: #e2e8f0; color: #334155; }
+  html.dark .dup-btn--secondary { background: #334155; color: #e2e8f0; }
+  .dup-group { border-top: 1px solid #e2e8f0; padding: 0.75rem 0; }
+  html.dark .dup-group { border-color: #334155; }
+  .dup-group label { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.875rem; }
+  .dup-empty { color: #64748b; font-size: 0.875rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dup-wrap">
+  <div class="dup-card">
+    <h3>Kiểm tra trùng tên sách</h3>
+    <p class="dup-meta">
+      LLM đọc từng lô khoảng 30 tên (đã sắp xếp) để tìm các cuốn viết gần như nhau.
+      Chọn sách muốn xóa trong từng nhóm — nên giữ lại một bản.
+    </p>
+    <form method="post" class="dup-actions">
+      {% csrf_token %}
+      <button type="submit" name="start_check" value="1" class="dup-btn dup-btn--primary" {% if is_running %}disabled{% endif %}>
+        {% if is_running %}Đang kiểm tra…{% else %}Chạy kiểm tra trùng{% endif %}
+      </button>
+      <a href="{{ changelist_url }}" class="dup-btn dup-btn--secondary">← Danh sách sách</a>
+    </form>
+
+    {% if report %}
+    <p class="dup-meta">
+      Lần gần nhất: {{ report.get_status_display }}
+      · {{ report.created_at }}
+      {% if report.error_message %} — {{ report.error_message }}{% endif %}
+    </p>
+    {% endif %}
+
+    {% if is_running %}
+    <p class="dup-empty">Đang gọi LLM từng lô. Tải lại trang sau khoảng 30–60 giây.</p>
+    {% elif report and report.groups %}
+    <form method="post">
+      {% csrf_token %}
+      {% for group in report.groups %}
+      <div class="dup-group">
+        <strong>{{ group.canonical }}</strong>
+        <ul style="margin:0.4rem 0 0;padding-left:0;list-style:none;">
+          {% for book in group.books %}
+          <li>
+            <label>
+              <input type="checkbox" name="book_id" value="{{ book.id }}">
+              <span>
+                {{ book.title }}
+                · <a href="{% url 'admin:documents_book_change' book.id %}">mở sách</a>
+              </span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+      <div class="dup-actions" style="margin-top:1rem;">
+        <button type="submit" name="delete_books" value="1" class="dup-btn dup-btn--danger"
+                onclick="return confirm('Xóa các sách đã chọn (kèm file PDF)?');">
+          Xóa sách đã chọn
+        </button>
+      </div>
+    </form>
+    {% elif report and report.status == "done" %}
+    <p class="dup-empty">Không có nhóm trùng để hiện.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

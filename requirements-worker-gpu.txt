@@ -1,0 +1,2 @@
+# GPU worker
+-r requirements-worker-base.txt

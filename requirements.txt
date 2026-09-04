@@ -1,0 +1,32 @@
+# Core dependencies
+streamlit
+pdfminer.six
+pdf2image
+pytesseract
+
+# Google AI
+google-cloud-documentai
+google-cloud-vision
+
+# PDF processing
+PyPDF2
+Pillow
+
+# OpenCV for image processing
+opencv-python
+
+# Bounding Box Detection Libraries (layout detection - không OCR)
+PyMuPDF
+docling>=2.0.0  # IBM Docling for document understanding
+doclayout-yolo==0.0.4
+
+# OCR Processing with LLM
+openai>=1.0.0  # OpenAI GPT-4 Vision
+requests  # For Ollama API calls
+
+# Utilities
+numpy
+tqdm
+
+# Export to Word
+python-docx

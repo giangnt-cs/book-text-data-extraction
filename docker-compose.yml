@@ -1,0 +1,157 @@
+name: ocr-platform
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-ocr_platform}
+      - POSTGRES_USER=${POSTGRES_USER:-ocr_platform}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ocr_platform}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - ocr_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ocr_platform} -d ${POSTGRES_DB:-ocr_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks:
+      - ocr_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Ghi đè .env nếu lỡ dùng localhost — trong container phải gọi tên service
+      - DATABASE_URL=postgres://${POSTGRES_USER:-ocr_platform}:${POSTGRES_PASSWORD:-ocr_platform}@postgres:5432/${POSTGRES_DB:-ocr_platform}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./bb_detection:/app/bb_detection
+      - ./ocr_llm:/app/ocr_llm
+      - ./models:/app/models
+      - media_data:/app/media
+      - ./credentials:/app/credentials:ro
+    networks:
+      - ocr_net
+    command:
+      - /bin/sh
+      - -c
+      - |
+        python backend/manage.py migrate --noinput &&
+        python backend/manage.py collectstatic --noinput &&
+        gunicorn ocr_platform.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 180 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz/"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker-gpu
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-ocr_platform}:${POSTGRES_PASSWORD:-ocr_platform}@postgres:5432/${POSTGRES_DB:-ocr_platform}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      # GPU vật lý trên host (nvidia-smi). Trong container card đó map thành cuda:0.
+      - GPU_DEVICE_IDS=${GPU_DEVICE_IDS:-0}
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_IDS:-0}
+      - CUDA_VISIBLE_DEVICES=0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - ./bb_detection:/app/bb_detection
+      - ./ocr_llm:/app/ocr_llm
+      - ./models:/app/models
+      - media_data:/app/media
+      - ./credentials:/app/credentials:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_DEVICE_IDS:-0}"]
+              capabilities: [gpu]
+    networks:
+      - ocr_net
+    command: ["celery", "-A", "ocr_platform.celery_app", "worker", "-l", "INFO", "-Q", "gpu", "-c", "4"]
+
+  worker-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker-cpu
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-ocr_platform}:${POSTGRES_PASSWORD:-ocr_platform}@postgres:5432/${POSTGRES_DB:-ocr_platform}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - ./bb_detection:/app/bb_detection
+      - ./ocr_llm:/app/ocr_llm
+      - ./models:/app/models
+      - media_data:/app/media
+      - ./credentials:/app/credentials:ro
+    networks:
+      - ocr_net
+    command: ["celery", "-A", "ocr_platform.celery_app", "worker", "-l", "INFO", "-Q", "cpu", "-c", "4"]
+
+networks:
+  ocr_net:
+    name: ocr-platform-net
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: ocr-platform-pgdata
+  redisdata:
+    name: ocr-platform-redisdata
+  media_data:
+    name: ocr-platform-media

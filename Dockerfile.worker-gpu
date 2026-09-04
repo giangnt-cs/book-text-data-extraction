@@ -1,0 +1,48 @@
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+FROM ${CUDA_BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
+    build-essential \
+    git \
+    curl \
+    poppler-utils \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libgomp1 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# PyTorch CUDA trước — tránh bị ghi đè bởi bản CPU từ PyPI
+RUN python -m pip install --no-cache-dir \
+    torch torchvision \
+    --index-url https://download.pytorch.org/whl/cu121
+
+COPY requirements-worker-gpu.txt /app/requirements-worker-gpu.txt
+COPY requirements-worker-base.txt /app/requirements-worker-base.txt
+COPY requirements-web.txt /app/requirements-web.txt
+
+RUN python -m pip install --no-cache-dir -r /app/requirements-worker-gpu.txt && \
+    python -c "from doclayout_yolo import YOLOv10; print('doclayout_yolo OK')"
+
+COPY . /app
+ENV PYTHONPATH=/app:/app/backend
+
+CMD ["celery", "-A", "ocr_platform.celery_app", "worker", "-l", "INFO", "-Q", "gpu,cpu", "-c", "2"]

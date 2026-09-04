@@ -1,0 +1,42 @@
+{% load i18n admin_urls %}
+<div class="page-submit-bar">
+  <div class="page-submit-bar__inner">
+    <div class="page-submit-bar__left">
+      {% if show_delete_link and original %}
+      {% url opts|admin_urlname:'delete' original.pk|admin_urlquote as delete_url %}
+      <a
+        href="{% add_preserved_filters delete_url %}"
+        class="page-submit-btn page-submit-btn--danger"
+      >{% translate "Delete" as t_delete %}{% if t_delete == "Delete" %}Xóa{% else %}{{ t_delete }}{% endif %}</a>
+      {% endif %}
+    </div>
+
+    <div class="page-submit-bar__center">
+      {% include "admin/documents/page_footer_nav.html" %}
+    </div>
+
+    <div class="page-submit-bar__right">
+      {% if original %}
+      <button
+        type="submit"
+        name="{{ rerun_ocr_action_name|default:'documents_page_rerun_ocr' }}"
+        class="page-submit-btn page-submit-btn--ocr"
+        form="{{ opts.model_name }}_form"
+        {% if can_rerun_ocr %}
+        onclick="return confirm('OCR lại sẽ ghi đè nội dung markdown của trang này. Tiếp tục?');"
+        {% else %}
+        disabled
+        title="{{ rerun_ocr_blocked_reason }}"
+        {% endif %}
+      >OCR lại trang này</button>
+      {% endif %}
+      <input
+        type="submit"
+        value="{% translate 'Save' as t_save %}{% if t_save == 'Save' %}Lưu lại{% else %}{{ t_save }}{% endif %}"
+        class="page-submit-btn page-submit-btn--primary"
+        name="_save"
+        form="{{ opts.model_name }}_form"
+      />
+    </div>
+  </div>
+</div>

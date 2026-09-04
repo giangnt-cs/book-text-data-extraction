@@ -1,0 +1,72 @@
+{% if filtered_nav and filtered_nav.total > 0 %}
+<div class="page-footer-nav">
+  <a
+    href="{% if filtered_nav.prev_url %}{{ filtered_nav.prev_url }}{% else %}#{% endif %}"
+    class="page-footer-nav__btn {% if not filtered_nav.prev_url %}page-footer-nav__btn--disabled{% endif %}"
+    {% if not filtered_nav.prev_url %}aria-disabled="true" tabindex="-1"{% endif %}
+    id="filtered-nav-prev"
+  >← Trước</a>
+
+  <div class="page-footer-nav__slider">
+    <div class="page-footer-nav__counter">
+      <strong>{{ filtered_nav.current }}</strong> / {{ filtered_nav.total }}
+      {% if filtered_nav_label %} · {{ filtered_nav_label }}{% endif %}
+    </div>
+    {% if filtered_nav.total > 1 %}
+    <input
+      type="range"
+      id="filtered-nav-slider"
+      min="1"
+      max="{{ filtered_nav.total }}"
+      value="{{ filtered_nav.current }}"
+      step="1"
+      class="page-footer-nav__range"
+      aria-label="Chọn trang"
+    />
+    {% endif %}
+  </div>
+
+  <a
+    href="{% if filtered_nav.next_url %}{{ filtered_nav.next_url }}{% else %}#{% endif %}"
+    class="page-footer-nav__btn {% if not filtered_nav.next_url %}page-footer-nav__btn--disabled{% endif %}"
+    {% if not filtered_nav.next_url %}aria-disabled="true" tabindex="-1"{% endif %}
+    id="filtered-nav-next"
+  >Sau →</a>
+
+  <a
+    href="{{ filtered_nav.changelist_url }}"
+    class="page-footer-nav__btn"
+  >{{ filtered_nav_back_label|default:"Danh sách" }}</a>
+</div>
+{{ filtered_nav.urls|json_script:"filtered-nav-urls" }}
+<script>
+(function () {
+  const slider = document.getElementById("filtered-nav-slider");
+  const urlsEl = document.getElementById("filtered-nav-urls");
+  if (!urlsEl) return;
+  const urls = JSON.parse(urlsEl.textContent);
+  if (!Array.isArray(urls)) return;
+  let navigating = false;
+  function goTo(index) {
+    if (navigating || !Number.isFinite(index) || index < 0 || index >= urls.length) return;
+    const target = urls[index];
+    if (typeof target !== "string" || !target.startsWith("/")) return;
+    navigating = true;
+    window.location.href = target;
+  }
+  if (slider) {
+    slider.addEventListener("change", function () {
+      goTo(parseInt(this.value, 10) - 1);
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable)) {
+      if (e.target.id !== "filtered-nav-slider") return;
+    }
+    const current = {{ filtered_nav.current|default:1 }} - 1;
+    if (e.key === "ArrowLeft" && current > 0) { e.preventDefault(); goTo(current - 1); }
+    if (e.key === "ArrowRight" && current < urls.length - 1) { e.preventDefault(); goTo(current + 1); }
+  });
+})();
+</script>
+{% endif %}

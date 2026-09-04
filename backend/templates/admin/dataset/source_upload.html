@@ -1,0 +1,17 @@
+<div class="md-clean-panel" style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:1rem 1.25rem;margin:0 0 1rem;">
+  <h3 style="margin:0 0 0.5rem;font-size:1rem;font-weight:700;">Upload văn bản</h3>
+  <p style="margin:0 0 0.75rem;font-size:0.8125rem;color:#64748b;">
+    Tải file <code>.md</code> hoặc <code>.txt</code> (nhiều file cùng lúc). File txt được chuyển thành Markdown.
+    Sách đã duyệt sẽ tự xuất hiện trong danh sách này.
+    Hiện có: <strong>{{ source_count }}</strong> văn bản.
+  </p>
+  {% if can_upload %}
+  <form method="post" action="{{ upload_url }}" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+    {% csrf_token %}
+    <input type="file" name="files" accept=".md,.txt,.markdown,text/markdown,text/plain" multiple required>
+    <button type="submit" style="border:none;border-radius:6px;padding:0.45rem 0.9rem;background:#7c3aed;color:#fff;font-weight:600;font-size:0.8125rem;cursor:pointer;">
+      Thêm vào danh sách
+    </button>
+  </form>
+  {% endif %}
+</div>

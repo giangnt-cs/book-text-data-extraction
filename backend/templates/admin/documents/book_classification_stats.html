@@ -1,0 +1,312 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  .stats-wrap {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0 0 2.5rem;
+  }
+  .stats-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .stats-summary__card {
+    min-width: 10rem;
+    padding: 0.85rem 1.1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+  }
+  html.dark .stats-summary__card {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  .stats-summary__label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 0.2rem;
+  }
+  html.dark .stats-summary__label {
+    color: #94a3b8;
+  }
+  .stats-summary__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.2;
+  }
+  html.dark .stats-summary__value {
+    color: #f1f5f9;
+  }
+  .stats-group {
+    margin-bottom: 1.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    padding: 1.1rem 1.25rem 1.25rem;
+  }
+  html.dark .stats-group {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  .stats-group__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.85rem;
+  }
+  .stats-group__title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  html.dark .stats-group__title {
+    color: #f1f5f9;
+  }
+  .stats-group__meta {
+    font-size: 0.8125rem;
+    color: #64748b;
+  }
+  html.dark .stats-group__meta {
+    color: #94a3b8;
+  }
+  .stats-group__kind {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: #ede9fe;
+    color: #5b21b6;
+  }
+  html.dark .stats-group__kind {
+    background: #4c1d95;
+    color: #ddd6fe;
+  }
+  .stats-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 280px;
+  }
+  .stats-table {
+    width: 100%;
+    margin-top: 0.85rem;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+  .stats-table th,
+  .stats-table td {
+    padding: 0.4rem 0.5rem;
+    border-top: 1px solid #e2e8f0;
+    text-align: left;
+  }
+  html.dark .stats-table th,
+  html.dark .stats-table td {
+    border-top-color: #334155;
+  }
+  .stats-table th {
+    font-weight: 600;
+    color: #64748b;
+  }
+  html.dark .stats-table th {
+    color: #94a3b8;
+  }
+  .stats-table td.num,
+  .stats-table th.num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats-table a {
+    color: #6d28d9;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .stats-table a:hover {
+    text-decoration: underline;
+  }
+  html.dark .stats-table a {
+    color: #c4b5fd;
+  }
+  .stats-table tr.is-empty td {
+    color: #b45309;
+  }
+  html.dark .stats-table tr.is-empty td {
+    color: #fcd34d;
+  }
+  .stats-hint {
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+    color: #64748b;
+  }
+  html.dark .stats-hint {
+    color: #94a3b8;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stats-wrap">
+  <p class="stats-hint">
+    Mỗi biểu đồ là một nhóm phân loại độc lập. Cột cho biết số sách theo từng giá trị.
+    Bấm tên giá trị trong bảng để mở danh sách sách tương ứng.
+  </p>
+
+  <div class="stats-summary">
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Tổng số sách</span>
+      <span class="stats-summary__value">{{ stats.total }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Tổng số trang</span>
+      <span class="stats-summary__value">{{ stats.total_pages }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Số sách đã OCR</span>
+      <span class="stats-summary__value">{{ stats.ocr_count }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Số sách đã làm sạch</span>
+      <span class="stats-summary__value">{{ stats.cleaned_count }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Số sách đã duyệt</span>
+      <span class="stats-summary__value">{{ stats.approved_count }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Số văn bản đã phân đoạn</span>
+      <span class="stats-summary__value">{{ stats.chunked_count }}</span>
+    </div>
+  </div>
+
+  {% for group in stats.groups %}
+  <section class="stats-group" id="group-{{ group.slug }}">
+    <div class="stats-group__head">
+      <h2 class="stats-group__title">
+        {{ group.name }}
+        <span class="stats-group__kind">{{ group.kind }}</span>
+      </h2>
+      <div class="stats-group__meta">
+        Đã phân loại {{ group.classified }}/{{ stats.total }}
+        · Chưa phân loại {{ group.unclassified }}
+      </div>
+    </div>
+    <div class="stats-chart-wrap">
+      <canvas id="chart-{{ group.slug }}" aria-label="Biểu đồ {{ group.name }}"></canvas>
+    </div>
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Mã</th>
+          <th>Giá trị</th>
+          <th class="num">Số sách</th>
+          <th class="num">Tỷ lệ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bar in group.bars %}
+        <tr class="{% if bar.unclassified %}is-empty{% endif %}">
+          <td>{{ bar.code }}</td>
+          <td><a href="{{ bar.url }}">{{ bar.name }}</a></td>
+          <td class="num">{{ bar.count }}</td>
+          <td class="num">{{ bar.pct }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% empty %}
+  <p class="stats-hint">Chưa có nhóm phân loại. Vào <strong>Nhóm phân loại</strong> để kiểm tra danh mục.</p>
+  {% endfor %}
+</div>
+
+{{ chart_payload|json_script:"classification-chart-data" }}
+<script>
+(function () {
+  const payload = JSON.parse(document.getElementById("classification-chart-data").textContent || "[]");
+  const colors = ["#7c3aed", "#0d9488", "#2563eb", "#d97706", "#db2777"];
+
+  function isDark() {
+    return document.documentElement.classList.contains("dark");
+  }
+
+  function tickColor() {
+    return isDark() ? "#94a3b8" : "#64748b";
+  }
+
+  function gridColor() {
+    return isDark() ? "#334155" : "#e2e8f0";
+  }
+
+  payload.forEach((group, idx) => {
+    const canvas = document.getElementById("chart-" + group.slug);
+    if (!canvas || !window.Chart) return;
+
+    const wrap = canvas.parentElement;
+    if (group.horizontal) {
+      wrap.style.height = Math.max(220, group.labels.length * 28 + 24) + "px";
+    }
+
+    const barColors = group.unclassified.map((flag) =>
+      flag ? (isDark() ? "#b45309" : "#f59e0b") : colors[idx % colors.length]
+    );
+
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: group.labels,
+        datasets: [{
+          label: "Số sách",
+          data: group.counts,
+          backgroundColor: barColors,
+          borderRadius: 4,
+          maxBarThickness: group.horizontal ? 18 : 48,
+        }],
+      },
+      options: {
+        indexAxis: group.horizontal ? "y" : "x",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => " " + ctx.parsed[group.horizontal ? "x" : "y"] + " sách",
+            },
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: { color: tickColor(), precision: 0, maxRotation: 45, minRotation: group.horizontal ? 0 : 30 },
+            grid: { color: group.horizontal ? gridColor() : "transparent" },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: tickColor(), precision: 0 },
+            grid: { color: group.horizontal ? "transparent" : gridColor() },
+          },
+        },
+        onClick: (_evt, elements) => {
+          if (!elements.length) return;
+          const url = group.urls[elements[0].index];
+          if (url) window.location.href = url;
+        },
+      },
+    });
+  });
+})();
+</script>
+{% endblock %}

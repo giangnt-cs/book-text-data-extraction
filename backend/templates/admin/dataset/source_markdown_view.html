@@ -1,0 +1,669 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .md-view-wrap {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 0 0 2rem;
+  }
+  .md-view-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .md-view-tabs {
+    display: inline-flex;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+  }
+  html.dark .md-view-tabs {
+    background: #1e293b;
+    border-color: #475569;
+  }
+  .md-view-tab {
+    border: none;
+    background: transparent;
+    padding: 0.45rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+  }
+  .md-view-tab--active {
+    background: #7c3aed;
+    color: #fff;
+  }
+  html.dark .md-view-tab {
+    color: #94a3b8;
+  }
+  .md-view-actions a {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #7c3aed;
+    text-decoration: none;
+  }
+  .md-view-actions a:hover {
+    text-decoration: underline;
+  }
+  .md-clean-panel {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+  html.dark .md-clean-panel {
+    background: #1e293b;
+    border-color: #334155;
+  }
+  .md-clean-panel h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .md-clean-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .md-clean-row label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #475569;
+    min-width: 5rem;
+  }
+  html.dark .md-clean-row label {
+    color: #94a3b8;
+  }
+  .md-clean-row select,
+  .md-clean-row input[type="number"] {
+    min-width: 14rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    font-size: 0.875rem;
+  }
+  .md-clean-row input[type="number"] {
+    min-width: 4.5rem;
+    width: 5.5rem;
+  }
+  .md-clean-row .md-clean-hint {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+  .md-clean-prompt {
+    width: 100%;
+    min-height: 8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  html.dark .md-clean-prompt {
+    background: #0f172a;
+    border-color: #475569;
+    color: #e2e8f0;
+  }
+  .md-clean-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  .md-clean-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .md-clean-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .md-clean-btn--primary {
+    background: #7c3aed;
+    color: #fff;
+  }
+  .md-clean-btn--secondary {
+    background: #e2e8f0;
+    color: #334155;
+  }
+  html.dark .md-clean-btn--secondary {
+    background: #334155;
+    color: #e2e8f0;
+  }
+  .md-clean-btn--danger {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+  .md-clean-status {
+    font-size: 0.8125rem;
+    color: #64748b;
+    margin-top: 0.5rem;
+  }
+  .md-clean-status--error {
+    color: #b91c1c;
+  }
+  .md-clean-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .md-clean-badge--cleaned {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .md-clean-badge--ocr {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .md-clean-badge--chunked {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+  html.dark .md-clean-badge--cleaned {
+    background: #14532d;
+    color: #bbf7d0;
+  }
+  html.dark .md-clean-badge--ocr {
+    background: #78350f;
+    color: #fde68a;
+  }
+  html.dark .md-clean-badge--chunked {
+    background: #1e3a8a;
+    color: #bfdbfe;
+  }
+  .md-chunk-break {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+    color: #1d4ed8;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .md-chunk-break::before,
+  .md-chunk-break::after {
+    content: "";
+    flex: 1;
+    border-top: 2px dashed #60a5fa;
+  }
+  .md-chunk-break span {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  html.dark .md-chunk-break {
+    color: #93c5fd;
+  }
+  html.dark .md-chunk-break::before,
+  html.dark .md-chunk-break::after {
+    border-color: #3b82f6;
+  }
+  html.dark .md-chunk-break span {
+    background: #1e3a8a;
+    color: #bfdbfe;
+  }
+  .md-view-panel {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    padding: 1.25rem 1.5rem;
+    min-height: 60vh;
+  }
+  html.dark .md-view-panel {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  .md-view-raw {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: #1e293b;
+  }
+  html.dark .md-view-raw {
+    color: #e2e8f0;
+  }
+  .md-view-rendered {
+    font-size: 1rem;
+    line-height: 1.65;
+    color: #1e293b;
+  }
+  html.dark .md-view-rendered {
+    color: #e2e8f0;
+  }
+  .md-view-rendered h1, .md-view-rendered h2, .md-view-rendered h3 {
+    margin: 1.25em 0 0.5em;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .md-view-rendered h1 { font-size: 1.75rem; }
+  .md-view-rendered h2 { font-size: 1.35rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem; }
+  .md-view-rendered h3 { font-size: 1.1rem; }
+  .md-view-rendered p { margin: 0.75em 0; }
+  .md-view-rendered ul, .md-view-rendered ol { margin: 0.75em 0; padding-left: 1.5rem; }
+  .md-view-rendered table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1em 0;
+    font-size: 0.9rem;
+  }
+  .md-view-rendered th, .md-view-rendered td {
+    border: 1px solid #cbd5e1;
+    padding: 0.35rem 0.6rem;
+    text-align: left;
+  }
+  html.dark .md-view-rendered th, html.dark .md-view-rendered td {
+    border-color: #475569;
+  }
+  .md-view-rendered code {
+    background: #f1f5f9;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.875em;
+  }
+  html.dark .md-view-rendered code {
+    background: #334155;
+  }
+  .md-view-rendered pre {
+    background: #f8fafc;
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+  html.dark .md-view-rendered pre {
+    background: #1e293b;
+  }
+  .md-view-rendered pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .md-view-hidden { display: none !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="md-view-wrap">
+  <div class="md-clean-row" style="margin-bottom:0.75rem;">
+    <span id="source-badge" class="md-clean-badge {% if using_chunked %}md-clean-badge--chunked{% else %}md-clean-badge--ocr{% endif %}">
+      {% if using_chunked %}Đang hiển thị: bản phân đoạn{% else %}Đang hiển thị: văn bản nguồn{% endif %}
+    </span>
+  </div>
+
+  <div class="md-clean-panel" id="chunk-panel">
+    <h3>Phân đoạn (chunking)</h3>
+    <p style="margin:0 0 0.75rem;font-size:0.8125rem;color:#64748b;">
+      Trước khi phân đoạn: LLM chỉ trả <code>true</code>/<code>false</code> để nối đoạn dang dở
+      qua ranh giới trang, rồi neo <code>&lt;!-- Trang N --&gt;</code> sau đoạn đầu mỗi trang.
+      Sau đó gửi N trang (đánh số đoạn [1], [2], …); mỗi <code>&lt;/break&gt;</code> kèm
+      <code>&lt;!-- Trang P --&gt;</code> để RAG cắt đoạn và trích dẫn đúng trang.
+    </p>
+    <div class="md-clean-row">
+      <label for="chunk-provider">LLM</label>
+      <select id="chunk-provider">
+        {% for p in cleaning_providers %}
+        <option value="{{ p.id }}" {% if p.id == default_chunk_provider_id %}selected{% endif %}>
+          {{ p.name }} ({{ p.backend }}){% if p.is_default %} — mặc định{% endif %}
+        </option>
+        {% empty %}
+        <option value="">Chưa cấu hình LLM — vào Admin → LLM</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="md-clean-row">
+      <label for="chunk-window">Trang / lần</label>
+      <input type="number" id="chunk-window" min="1" max="20" step="1" value="{{ chunk_window_pages }}">
+      <label for="chunk-overlap" style="min-width:auto">Trùng</label>
+      <input type="number" id="chunk-overlap" min="0" max="19" step="1" value="{{ chunk_overlap_pages }}">
+      <p class="md-clean-hint">
+        Ví dụ 3 trang / trùng 1: lần 1 gửi trang 1–3, lần 2 gửi 3–5 (trang 3 làm ngữ cảnh).
+        Trùng phải nhỏ hơn số trang mỗi lần.
+      </p>
+    </div>
+    <label for="chunk-prompt" style="font-size:0.8125rem;font-weight:600;color:#475569;">Prompt</label>
+    <textarea id="chunk-prompt" class="md-clean-prompt">{{ chunking_prompt }}</textarea>
+    <div class="md-clean-buttons">
+      <button type="button" class="md-clean-btn md-clean-btn--primary" id="btn-chunk-start">Phân đoạn</button>
+      <button type="button" class="md-clean-btn md-clean-btn--secondary" id="btn-chunk-cancel">Hủy phân đoạn</button>
+      <button type="button" class="md-clean-btn md-clean-btn--secondary" id="btn-chunk-save-prompt">Lưu cấu hình</button>
+      <button type="button" class="md-clean-btn md-clean-btn--danger" id="btn-chunk-revert">Xóa phân đoạn</button>
+    </div>
+    <div class="md-clean-status" id="chunk-status"></div>
+  </div>
+
+  <div class="md-view-toolbar">
+    <div class="md-view-tabs" role="tablist">
+      <button type="button" class="md-view-tab md-view-tab--active" data-mode="render" role="tab" aria-selected="true">
+        Xem render
+      </button>
+      <button type="button" class="md-view-tab" data-mode="raw" role="tab" aria-selected="false">
+        File thô
+      </button>
+    </div>
+    <div class="md-view-actions">
+      <a href="{{ download_url }}">Tải .md</a>
+      ·
+      <a href="{{ changelist_url }}">← Văn bản nguồn</a>
+    </div>
+  </div>
+
+  <div class="md-view-panel">
+    <div id="md-rendered" class="md-view-rendered" role="tabpanel"></div>
+    <pre id="md-raw" class="md-view-raw md-view-hidden" role="tabpanel"></pre>
+  </div>
+</div>
+
+{{ markdown_content|json_script:"book-markdown-data" }}
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+(function () {
+  const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]")?.value
+    || document.cookie.split("; ").find((r) => r.startsWith("csrftoken="))?.split("=")[1]
+    || "";
+
+  const urls = {
+    chunkStart: "{{ chunk_text_start_url|escapejs }}",
+    chunkRevert: "{{ chunk_text_revert_url|escapejs }}",
+    chunkStatus: "{{ chunk_text_status_url|escapejs }}",
+    chunkSavePrompt: "{{ chunk_text_save_prompt_url|escapejs }}",
+    chunkCancel: "{{ chunk_text_cancel_url|escapejs }}",
+  };
+
+  const dataEl = document.getElementById("book-markdown-data");
+  let markdown = JSON.parse(dataEl.textContent);
+  let displaySource = "{% if using_chunked %}chunked{% else %}source{% endif %}";
+  const renderedEl = document.getElementById("md-rendered");
+  const rawEl = document.getElementById("md-raw");
+  const tabs = document.querySelectorAll(".md-view-tab");
+  const chunkStatusEl = document.getElementById("chunk-status");
+  const sourceBadge = document.getElementById("source-badge");
+  const chunkProviderEl = document.getElementById("chunk-provider");
+  const chunkPromptEl = document.getElementById("chunk-prompt");
+  const chunkWindowEl = document.getElementById("chunk-window");
+  const chunkOverlapEl = document.getElementById("chunk-overlap");
+  const btnChunkStart = document.getElementById("btn-chunk-start");
+  const btnChunkCancel = document.getElementById("btn-chunk-cancel");
+  const btnChunkRevert = document.getElementById("btn-chunk-revert");
+  const btnChunkSavePrompt = document.getElementById("btn-chunk-save-prompt");
+
+  let chunkPollTimer = null;
+  let chunkingActive = false;
+  let actionBusy = false;
+
+  function renderMarkdown(text, source) {
+    markdown = text;
+    if (source) displaySource = source;
+    let body = String(text || "");
+    const isChunked = displaySource === "chunked";
+    if (!isChunked) {
+      body = body.replace(/<\/\s*break\s*>/gi, "");
+    }
+    rawEl.textContent = body;
+    if (window.marked) {
+      if (isChunked) {
+        const sep = '<div class="md-chunk-break" role="separator"><span>&lt;/break&gt;</span></div>';
+        renderedEl.innerHTML = body.split(/<\/break>/i)
+          .map((part) => marked.parse(part, { gfm: true, breaks: false }))
+          .join(sep);
+      } else {
+        renderedEl.innerHTML = marked.parse(body, { gfm: true, breaks: false });
+      }
+    } else {
+      renderedEl.textContent = body;
+    }
+  }
+
+  renderMarkdown(markdown);
+
+  function setMode(mode) {
+    const isRaw = mode === "raw";
+    rawEl.classList.toggle("md-view-hidden", !isRaw);
+    renderedEl.classList.toggle("md-view-hidden", isRaw);
+    tabs.forEach((tab) => {
+      const active = tab.dataset.mode === mode;
+      tab.classList.toggle("md-view-tab--active", active);
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+    });
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => setMode(tab.dataset.mode));
+  });
+
+  function setSourceBadge(source) {
+    const labels = {
+      chunked: "Đang hiển thị: bản phân đoạn",
+      source: "Đang hiển thị: văn bản nguồn",
+    };
+    const cls = source === "chunked" ? "md-clean-badge--chunked" : "md-clean-badge--ocr";
+    sourceBadge.textContent = labels[source] || labels.source;
+    sourceBadge.className = "md-clean-badge " + cls;
+    displaySource = source || "source";
+  }
+
+  function setChunkStatus(msg, isError) {
+    chunkStatusEl.textContent = msg || "";
+    chunkStatusEl.classList.toggle("md-clean-status--error", !!isError);
+  }
+
+  function jobBusy() {
+    return actionBusy || chunkingActive;
+  }
+
+  function updateButtons() {
+    const busy = jobBusy();
+    btnChunkStart.disabled = busy;
+    btnChunkRevert.disabled = actionBusy;
+    btnChunkSavePrompt.disabled = actionBusy;
+    btnChunkCancel.disabled = !chunkingActive || actionBusy;
+  }
+
+  function setChunkingActive(active) {
+    chunkingActive = active;
+    updateButtons();
+  }
+
+  function setActionBusy(busy) {
+    actionBusy = busy;
+    updateButtons();
+  }
+
+  async function postJson(url, body) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken,
+      },
+      credentials: "same-origin",
+      body: JSON.stringify(body || {}),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || ("HTTP " + resp.status));
+    }
+    return data;
+  }
+
+  async function pollChunkStatus() {
+    try {
+      const resp = await fetch(urls.chunkStatus, { credentials: "same-origin" });
+      const data = await resp.json();
+      if (!data.ok) return;
+
+      setSourceBadge(data.source || (data.using_chunked ? "chunked" : "source"));
+
+      if (data.batch) {
+        const b = data.batch;
+        if (b.status === "pending" || b.status === "processing") {
+          const win = b.window_pages ? (" · cửa sổ " + b.window_pages + " trùng " + (b.overlap_pages || 0)) : "";
+          setChunkStatus("Đang phân đoạn… " + b.progress + "/" + b.total + " trang (" + b.provider + ")" + win);
+          setChunkingActive(true);
+          return;
+        }
+        if (b.status === "failed") {
+          setChunkStatus("Lỗi: " + (b.error_message || "Không xác định"), true);
+          setChunkingActive(false);
+          stopChunkPoll();
+          return;
+        }
+        if (b.status === "done") {
+          const note = b.error_message ? " — " + b.error_message : "";
+          setChunkStatus("Hoàn thành phân đoạn" + note);
+          setChunkingActive(false);
+          stopChunkPoll();
+        }
+      }
+
+      if (data.markdown) {
+        renderMarkdown(data.markdown, data.source);
+      }
+    } catch (e) {
+      setChunkStatus("Không lấy được trạng thái: " + e.message, true);
+    }
+  }
+
+  function startChunkPoll() {
+    stopChunkPoll();
+    chunkPollTimer = setInterval(pollChunkStatus, 3000);
+    pollChunkStatus();
+  }
+
+  function stopChunkPoll() {
+    if (chunkPollTimer) {
+      clearInterval(chunkPollTimer);
+      chunkPollTimer = null;
+    }
+  }
+
+  function chunkWindowPayload() {
+    return {
+      window_pages: Number(chunkWindowEl.value || 2),
+      overlap_pages: Number(chunkOverlapEl.value || 0),
+    };
+  }
+
+  btnChunkStart.addEventListener("click", async () => {
+    if (!chunkProviderEl.value) {
+      setChunkStatus("Chưa có LLM được cấu hình.", true);
+      return;
+    }
+    const windowPages = Number(chunkWindowEl.value || 0);
+    const overlapPages = Number(chunkOverlapEl.value || 0);
+    if (!Number.isInteger(windowPages) || windowPages < 1 || windowPages > 20) {
+      setChunkStatus("Số trang mỗi lần gửi phải từ 1 đến 20.", true);
+      return;
+    }
+    if (!Number.isInteger(overlapPages) || overlapPages < 0 || overlapPages >= windowPages) {
+      setChunkStatus("Số trang trùng phải từ 0 và nhỏ hơn số trang mỗi lần gửi.", true);
+      return;
+    }
+    setActionBusy(true);
+    setChunkStatus("Đang gửi yêu cầu phân đoạn…");
+    try {
+      await postJson(urls.chunkStart, {
+        provider_id: chunkProviderEl.value,
+        prompt: chunkPromptEl.value,
+        window_pages: windowPages,
+        overlap_pages: overlapPages,
+      });
+      setChunkStatus("Đã gửi vào hàng đợi — cửa sổ " + windowPages + " trang, trùng " + overlapPages + "…");
+      setChunkingActive(true);
+      startChunkPoll();
+    } catch (e) {
+      setChunkStatus(e.message, true);
+    } finally {
+      setActionBusy(false);
+    }
+  });
+
+  btnChunkSavePrompt.addEventListener("click", async () => {
+    setActionBusy(true);
+    try {
+      const data = await postJson(urls.chunkSavePrompt, {
+        prompt: chunkPromptEl.value,
+        ...chunkWindowPayload(),
+      });
+      setChunkStatus("Đã lưu cấu hình phân đoạn.");
+      if (data.prompt) chunkPromptEl.value = data.prompt;
+      if (data.window_pages != null) chunkWindowEl.value = data.window_pages;
+      if (data.overlap_pages != null) chunkOverlapEl.value = data.overlap_pages;
+    } catch (e) {
+      setChunkStatus(e.message, true);
+    } finally {
+      setActionBusy(false);
+    }
+  });
+
+  btnChunkRevert.addEventListener("click", async () => {
+    if (!confirm("Xóa toàn bộ mốc phân đoạn và hiện lại văn bản nguồn?")) return;
+    setActionBusy(true);
+    setChunkStatus("Đang xóa phân đoạn…");
+    stopChunkPoll();
+    setChunkingActive(false);
+    try {
+      await postJson(urls.chunkRevert, {});
+      window.location.replace(window.location.pathname + "?_=" + Date.now());
+      return;
+    } catch (e) {
+      setChunkStatus(e.message, true);
+    } finally {
+      setActionBusy(false);
+    }
+  });
+
+  btnChunkCancel.addEventListener("click", async () => {
+    if (!confirm("Hủy lần phân đoạn đang chạy?")) return;
+    setActionBusy(true);
+    try {
+      const data = await postJson(urls.chunkCancel, {});
+      setChunkStatus(data.message || "Đã hủy phân đoạn.");
+      setChunkingActive(false);
+      stopChunkPoll();
+    } catch (e) {
+      setChunkStatus(e.message, true);
+    } finally {
+      setActionBusy(false);
+    }
+  });
+
+  {% if latest_chunk_batch_status == "pending" or latest_chunk_batch_status == "processing" %}
+  setChunkingActive(true);
+  startChunkPoll();
+  {% endif %}
+  updateButtons();
+})();
+</script>
+{% endblock %}

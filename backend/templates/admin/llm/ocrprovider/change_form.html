@@ -1,0 +1,253 @@
+{% extends "admin/change_form.html" %}
+{% load i18n static %}
+
+{% block extrahead %}
+{{ block.super }}
+{{ default_base_urls|json_script:"ocr-default-base-urls" }}
+{{ backends_without_models|json_script:"ocr-backends-without-models" }}
+{% if sampling_backends %}{{ sampling_backends|json_script:"ocr-sampling-backends" }}{% endif %}
+{% if ocr_tool_catalog %}{{ ocr_tool_catalog|json_script:"ocr-tool-catalog" }}{% endif %}
+{% if vlm_backends %}{{ vlm_backends|json_script:"ocr-vlm-backends" }}{% endif %}
+<style>
+  .ocr-model-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+  }
+  .ocr-model-picker__select {
+    min-width: 16rem;
+    max-width: 100%;
+    flex: 1 1 16rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0.45rem 0.65rem;
+    font-size: 0.875rem;
+    background: #fff;
+  }
+  html.dark .ocr-model-picker__select {
+    background: #1e293b;
+    border-color: #475569;
+    color: #f1f5f9;
+  }
+  .ocr-model-picker__btn {
+    border: 1px solid #7c3aed;
+    background: #7c3aed;
+    color: #fff;
+    border-radius: 6px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ocr-model-picker__btn:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
+  .ocr-model-picker__status {
+    width: 100%;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+  html.dark .ocr-model-picker__status {
+    color: #94a3b8;
+  }
+  .ocr-model-picker__status--error {
+    color: #dc2626;
+  }
+  .ocr-backend-hint {
+    margin-top: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 8px;
+    border: 1px solid #c4b5fd;
+    background: #f5f3ff;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #334155;
+  }
+  html.dark .ocr-backend-hint {
+    background: #2e1065;
+    border-color: #5b21b6;
+    color: #e2e8f0;
+  }
+  .ocr-backend-hint strong { color: #5b21b6; }
+  html.dark .ocr-backend-hint strong { color: #ddd6fe; }
+</style>
+<script>
+(function () {
+  const FETCH_URL = "{{ fetch_models_url|escapejs }}";
+  const OBJECT_ID = "{{ original.pk|default:''|escapejs }}";
+  const DEFAULT_BASE_URLS = JSON.parse(document.getElementById("ocr-default-base-urls").textContent);
+  const CATALOG_EL = document.getElementById("ocr-tool-catalog");
+  const CATALOG = CATALOG_EL ? JSON.parse(CATALOG_EL.textContent) : [];
+  const BACKENDS_WITHOUT_MODELS = new Set(
+    JSON.parse(document.getElementById("ocr-backends-without-models").textContent)
+  );
+
+  const VLM_EL = document.getElementById("ocr-vlm-backends");
+  const VLM_BACKENDS = new Set(VLM_EL ? JSON.parse(VLM_EL.textContent) : []);
+
+  function qs(sel) { return document.querySelector(sel); }
+  function backendSelect() { return qs("#id_backend"); }
+  function baseUrlInput() { return qs("#id_base_url"); }
+  function apiKeyInput() { return qs("#id_api_key"); }
+  function modelInput() { return qs("#id_model"); }
+  function llmSelect() { return qs("#id_llm"); }
+
+  function setStatus(msg, isError) {
+    const el = qs("#ocr-model-status");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.classList.toggle("ocr-model-picker__status--error", !!isError);
+  }
+
+  function toggleSamplingFields() {
+    const el = document.getElementById("ocr-sampling-backends");
+    if (!el) return;
+    const allowed = new Set(JSON.parse(el.textContent));
+    const show = allowed.has(backendSelect()?.value || "");
+    [".field-temperature", ".field-enable_thinking"].forEach(function (sel) {
+      const row = qs(sel);
+      if (row) row.style.display = show ? "" : "none";
+    });
+    const fieldset = qs(".field-temperature")?.closest("fieldset");
+    if (fieldset) fieldset.style.display = show ? "" : "none";
+  }
+
+  function toggleModelSection() {
+    const backend = backendSelect()?.value || "";
+    const needsModel = !BACKENDS_WITHOUT_MODELS.has(backend);
+    const wrap = qs("#ocr-model-picker-wrap");
+    const modelRow = qs(".field-model");
+    if (wrap) wrap.style.display = needsModel ? "" : "none";
+    if (modelRow) modelRow.style.display = needsModel ? "" : "none";
+    if (!needsModel && modelInput()) modelInput().value = "";
+    const llmRow = qs(".field-llm");
+    if (llmRow && VLM_BACKENDS.size) {
+      llmRow.style.display = VLM_BACKENDS.has(backend) ? "" : "none";
+    }
+    toggleSamplingFields();
+  }
+
+  function updateBackendHint() {
+    const field = qs(".field-backend");
+    if (!field) return;
+    let hint = qs("#ocr-backend-hint");
+    if (!hint) {
+      hint = document.createElement("div");
+      hint.id = "ocr-backend-hint";
+      hint.className = "ocr-backend-hint";
+      field.appendChild(hint);
+    }
+    const backend = backendSelect()?.value || "";
+    const row = CATALOG.find(function (item) { return item.backend === backend; });
+    if (!row) {
+      hint.style.display = "none";
+      return;
+    }
+    hint.style.display = "";
+    hint.innerHTML =
+      "<strong>Nên dùng cho:</strong> " + (row.page_types || "—") +
+      "<br><strong>Không nên:</strong> " + (row.avoid || "—") +
+      (row.notes ? "<br>" + row.notes : "");
+  }
+
+  function fillSelect(models, selected) {
+    const select = qs("#ocr-model-select");
+    if (!select) return;
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = models.length ? "— Chọn model —" : "— Không có model —";
+    select.appendChild(placeholder);
+    models.forEach(function (name) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (selected && selected === name) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  async function loadModels() {
+    const btn = qs("#ocr-load-models-btn");
+    const backend = backendSelect()?.value || "";
+    const baseUrl = baseUrlInput()?.value || "";
+    const apiKey = apiKeyInput()?.value || "";
+    if (BACKENDS_WITHOUT_MODELS.has(backend)) {
+      setStatus("Loại công cụ này không cần chọn model.");
+      fillSelect([]);
+      return;
+    }
+    setStatus("Đang tải danh sách model…");
+    if (btn) btn.disabled = true;
+    try {
+      const params = new URLSearchParams({ backend, base_url: baseUrl, api_key: apiKey });
+      if (OBJECT_ID) params.set("object_id", OBJECT_ID);
+      const llmId = llmSelect()?.value || "";
+      if (llmId) params.set("llm_id", llmId);
+      const resp = await fetch(FETCH_URL + "?" + params.toString(), {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || "Không tải được danh sách model.");
+      }
+      fillSelect(data.models || [], modelInput()?.value || "");
+      setStatus(
+        data.hint ||
+          ((data.models || []).length
+            ? "Đã tải " + data.models.length + " model. Chọn model rồi lưu."
+            : "Không tìm thấy model.")
+      );
+    } catch (err) {
+      setStatus(err.message || String(err), true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function applyDefaultBaseUrl() {
+    const backend = backendSelect()?.value || "";
+    const input = baseUrlInput();
+    if (!input || input.value.trim()) return;
+    const def = DEFAULT_BASE_URLS[backend];
+    if (def) input.value = def;
+  }
+
+  function mountPicker() {
+    const modelField = qs(".field-model");
+    if (!modelField || qs("#ocr-model-picker-wrap")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "ocr-model-picker-wrap";
+    wrap.className = "ocr-model-picker";
+    wrap.innerHTML =
+      '<button type="button" id="ocr-load-models-btn" class="ocr-model-picker__btn">Tải danh sách model</button>' +
+      '<select id="ocr-model-select" class="ocr-model-picker__select"></select>' +
+      '<div id="ocr-model-status" class="ocr-model-picker__status"></div>';
+    modelField.appendChild(wrap);
+
+    qs("#ocr-load-models-btn").addEventListener("click", loadModels);
+    qs("#ocr-model-select").addEventListener("change", function () {
+      if (modelInput()) modelInput().value = this.value;
+    });
+
+    const current = modelInput()?.value || "";
+    if (current) fillSelect([current], current);
+
+    backendSelect()?.addEventListener("change", function () {
+      applyDefaultBaseUrl();
+      toggleModelSection();
+      updateBackendHint();
+    });
+    toggleModelSection();
+    applyDefaultBaseUrl();
+    updateBackendHint();
+  }
+
+  document.addEventListener("DOMContentLoaded", mountPicker);
+})();
+</script>
+{% endblock %}

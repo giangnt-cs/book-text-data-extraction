@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtualenv
+venv/
+env/
+ENV/
+
+# Secrets & local config
+.env
+credentials/*.json
+
+# Weights & local samples (large / copyrighted)
+models/*.pt
+models/*.pth
+samples/*.pdf
+
+# Runtime / media
+media/
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

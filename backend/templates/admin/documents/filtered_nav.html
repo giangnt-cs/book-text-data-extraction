@@ -1,0 +1,103 @@
+{% if filtered_nav and filtered_nav.total > 0 %}
+<div
+  id="filtered-nav-bar"
+  class="mb-4 rounded-default border border-base-200 bg-white p-4 shadow-xs dark:border-base-800 dark:bg-base-900"
+  role="navigation"
+  aria-label="Điều hướng kết quả đã lọc"
+>
+  <div class="flex flex-wrap items-center gap-3">
+    <a
+      href="{% if filtered_nav.prev_url %}{{ filtered_nav.prev_url }}{% else %}#{% endif %}"
+      class="inline-flex items-center rounded-default border px-3 py-1.5 text-sm font-medium {% if filtered_nav.prev_url %}border-base-300 hover:bg-base-50 dark:border-base-700 dark:hover:bg-base-800{% else %}cursor-not-allowed border-base-200 text-base-400 dark:border-base-800{% endif %}"
+      {% if not filtered_nav.prev_url %}aria-disabled="true" tabindex="-1"{% endif %}
+      id="filtered-nav-prev"
+    >
+      ← Trước
+    </a>
+
+    <a
+      href="{% if filtered_nav.next_url %}{{ filtered_nav.next_url }}{% else %}#{% endif %}"
+      class="inline-flex items-center rounded-default border px-3 py-1.5 text-sm font-medium {% if filtered_nav.next_url %}border-base-300 hover:bg-base-50 dark:border-base-700 dark:hover:bg-base-800{% else %}cursor-not-allowed border-base-200 text-base-400 dark:border-base-800{% endif %}"
+      {% if not filtered_nav.next_url %}aria-disabled="true" tabindex="-1"{% endif %}
+      id="filtered-nav-next"
+    >
+      Sau →
+    </a>
+
+    <div class="flex min-w-0 flex-1 flex-col gap-1 px-1">
+      <div class="flex items-center justify-between gap-2 text-xs text-base-500 dark:text-base-400">
+        <span id="filtered-nav-counter">
+          <strong class="text-base-700 dark:text-base-200">{{ filtered_nav.current }}</strong>
+          / {{ filtered_nav.total }}
+          {% if filtered_nav.has_filters %}(đã lọc){% endif %}
+        </span>
+        {% if filtered_nav_label %}
+        <span class="truncate font-medium text-base-700 dark:text-base-200">{{ filtered_nav_label }}</span>
+        {% endif %}
+      </div>
+      {% if filtered_nav.total > 1 %}
+      <input
+        type="range"
+        id="filtered-nav-slider"
+        min="1"
+        max="{{ filtered_nav.total }}"
+        value="{{ filtered_nav.current }}"
+        step="1"
+        class="w-full cursor-pointer accent-primary-600"
+        aria-label="Chọn vị trí trong danh sách đã lọc"
+      />
+      {% endif %}
+    </div>
+
+    <a
+      href="{{ filtered_nav.changelist_url }}"
+      class="inline-flex items-center rounded-default border border-base-300 px-3 py-1.5 text-sm hover:bg-base-50 dark:border-base-700 dark:hover:bg-base-800"
+    >
+      {{ filtered_nav_back_label|default:"Danh sách" }}
+    </a>
+  </div>
+
+  {{ filtered_nav.urls|json_script:"filtered-nav-urls" }}
+</div>
+
+<script>
+(function () {
+  const slider = document.getElementById("filtered-nav-slider");
+  const urlsEl = document.getElementById("filtered-nav-urls");
+  if (!urlsEl) return;
+
+  const urls = JSON.parse(urlsEl.textContent);
+  if (!Array.isArray(urls)) return;
+  let navigating = false;
+
+  function goTo(index) {
+    if (navigating || !Number.isFinite(index) || index < 0 || index >= urls.length) return;
+    const target = urls[index];
+    if (typeof target !== "string" || !target.startsWith("/")) return;
+    navigating = true;
+    window.location.href = target;
+  }
+
+  if (slider) {
+    slider.addEventListener("change", function () {
+      goTo(parseInt(this.value, 10) - 1);
+    });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable)) {
+      if (e.target.id !== "filtered-nav-slider") return;
+    }
+    const current = {{ filtered_nav.current|default:1 }} - 1;
+    if (e.key === "ArrowLeft" && current > 0) {
+      e.preventDefault();
+      goTo(current - 1);
+    }
+    if (e.key === "ArrowRight" && current < urls.length - 1) {
+      e.preventDefault();
+      goTo(current + 1);
+    }
+  });
+})();
+</script>
+{% endif %}
