@@ -155,26 +155,107 @@ def stitch_page_texts(
     on_check: Callable[[], None] | None = None,
 ) -> tuple[list[str], set[int], int]:
     """Nối đoạn cuối/đầu hai trang liên tiếp. Trả (texts, trang đã nối về trước, số cặp nối)."""
-    pages = list(texts)
+    template = (prompt_template or "").strip() or get_stitch_prompt()
+    return _stitch_page_texts(
+        texts,
+        page_numbers=page_numbers,
+        on_check=on_check,
+        should_join=lambda left, right: should_join_paragraphs(
+            provider=provider,
+            model=model,
+            left=left,
+            right=right,
+            prompt_template=template,
+        ),
+    )
+
+
+_SENTENCE_END_RE = re.compile(r"[.!?…。！？][»”\"'’)\]\s]*$")
+_PAGE_COMMENT_LINE_RE = re.compile(r"(?m)^\s*<!--\s*Trang\s+\d+\s*-->\s*\n?")
+
+
+def strip_page_comments(text: str) -> str:
+    return _PAGE_COMMENT_LINE_RE.sub("", text or "").strip()
+
+
+def is_incomplete_paragraph(text: str) -> bool:
+    """Đoạn cuối trang bị ngắt: gạch nối, dấu phẩy/chấm phẩy, hoặc chưa kết câu."""
+    body = (text or "").rstrip()
+    if not body:
+        return False
+    if body.endswith("-") or body.endswith("\u00ad"):
+        return True
+    if body.endswith(",") or body.endswith(";"):
+        return True
+    return _SENTENCE_END_RE.search(body) is None
+
+
+def _right_continues_sentence(text: str) -> bool:
+    first = (text or "").lstrip()[:1]
+    return bool(first) and first.islower()
+
+
+def _is_noise_paragraph(text: str) -> bool:
+    """Dòng trống, comment trang/OCR — không phải nội dung để nối câu."""
+    line = (text or "").strip().split("\n", 1)[0].strip()
+    if not line:
+        return True
+    if line.startswith("<!--") or line.startswith("-->"):
+        return True
+    return bool(_PAGE_COMMENT_RE.match(line))
+
+
+def _strip_leading_noise_lines(text: str) -> str:
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    while lines:
+        stripped = lines[0].strip()
+        if not stripped or stripped.startswith("<!--") or stripped.startswith("-->"):
+            lines.pop(0)
+            continue
+        if _PAGE_COMMENT_RE.match(stripped):
+            lines.pop(0)
+            continue
+        break
+    return "\n".join(lines).strip()
+
+
+def _right_starts_new_block(text: str, *, is_heading: Callable[[str], bool] | None) -> bool:
+    first = _strip_leading_noise_lines(text)
+    if not first:
+        return True
+    line = first.split("\n", 1)[0].strip()
+    if is_heading and is_heading(line):
+        return True
+    return False
+
+
+def _content_paragraphs(text: str) -> list[str]:
+    """Tách đoạn, bỏ đoạn rỗng / comment trang ở đầu và cuối."""
+    paras = [_strip_leading_noise_lines(part) for part in split_paragraphs(text)]
+    paras = [part for part in paras if part and not _is_noise_paragraph(part)]
+    return paras
+
+
+def _stitch_page_texts(
+    texts: list[str],
+    *,
+    page_numbers: list[int],
+    on_check: Callable[[], None] | None = None,
+    should_join: Callable[[str, str], bool],
+) -> tuple[list[str], set[int], int]:
+    pages = [strip_page_comments(text) for text in texts]
     joined_into_prev: set[int] = set()
     joined = 0
     if len(pages) < 2:
         return pages, joined_into_prev, joined
-    template = (prompt_template or "").strip() or get_stitch_prompt()
     for i in range(len(pages) - 1):
         if on_check:
             on_check()
-        left_paras = split_paragraphs(pages[i])
-        right_paras = split_paragraphs(pages[i + 1])
+        left_paras = _content_paragraphs(pages[i])
+        right_paras = _content_paragraphs(pages[i + 1])
         if not left_paras or not right_paras:
             continue
-        if not should_join_paragraphs(
-            provider=provider,
-            model=model,
-            left=left_paras[-1],
-            right=right_paras[0],
-            prompt_template=template,
-        ):
+        if not should_join(left_paras[-1], right_paras[0]):
             continue
         left_paras[-1] = merge_paragraphs(left_paras[-1], right_paras[0])
         right_paras = right_paras[1:]
@@ -183,6 +264,34 @@ def stitch_page_texts(
         joined_into_prev.add(int(page_numbers[i + 1]))
         joined += 1
     return pages, joined_into_prev, joined
+
+
+def stitch_page_texts_heuristic(
+    texts: list[str],
+    *,
+    page_numbers: list[int],
+    is_heading: Callable[[str], bool] | None = None,
+    on_check: Callable[[], None] | None = None,
+) -> tuple[list[str], set[int], int]:
+    """Nối đoạn cuối trang nếu câu chưa kết; bỏ qua dòng trống / comment trang."""
+
+    def should_join(left: str, right: str) -> bool:
+        right = _strip_leading_noise_lines(right)
+        if _right_starts_new_block(right, is_heading=is_heading):
+            return False
+        body = (left or "").rstrip()
+        if body.endswith("-") or body.endswith("\u00ad") or body.endswith(",") or body.endswith(";"):
+            return True
+        if _SENTENCE_END_RE.search(body):
+            return False
+        return _right_continues_sentence(right)
+
+    return _stitch_page_texts(
+        texts,
+        page_numbers=page_numbers,
+        on_check=on_check,
+        should_join=should_join,
+    )
 
 
 def _append_page_comment(paragraph: str, page_number: int) -> str:

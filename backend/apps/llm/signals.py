@@ -12,6 +12,8 @@ from .models import (
     BookDedupeConfig,
     BookIngestConfig,
     ChunkingConfig,
+    ChunkResizeConfig,
+    ImageDescribeConfig,
     LLMBackend,
     LLMProvider,
     OCRBackend,
@@ -19,11 +21,14 @@ from .models import (
     PageOCRConfig,
     TextCleaningConfig,
     TextCleaningPrompt,
+    VLM_BACKENDS,
 )
 from ocr_llm.prompts import (
     default_book_classify_prompt,
     default_book_dedupe_prompt,
     default_book_ingest_prompt,
+    default_image_describe_page_prompt,
+    default_image_describe_prompt,
     default_page_chunking_prompt,
     default_page_stitch_prompt,
     default_text_cleaning_prompt,
@@ -215,6 +220,16 @@ def ensure_default_llm_setup(sender, **kwargs):
             "stitch_prompt": default_page_stitch_prompt(),
         },
     )
+    chunking = ChunkingConfig.objects.filter(pk=1).first()
+    ChunkResizeConfig.objects.get_or_create(
+        pk=1,
+        defaults={
+            "provider": getattr(chunking, "provider", None) or default_llm,
+            "model": getattr(chunking, "model", "") or "",
+            "max_tokens": 5000,
+            "prompt": (getattr(chunking, "prompt", None) or "").strip() or default_page_chunking_prompt(),
+        },
+    )
     BookIngestConfig.objects.get_or_create(
         pk=1,
         defaults={
@@ -230,6 +245,21 @@ def ensure_default_llm_setup(sender, **kwargs):
             "model": "",
             "batch_size": 30,
             "prompt": default_book_dedupe_prompt(),
+        },
+    )
+    default_vlm = (
+        OCRProvider.objects.filter(is_active=True, backend__in=VLM_BACKENDS).order_by("name").first()
+        or OCRProvider.objects.filter(name="Gemini VLM").first()
+        or OCRProvider.objects.filter(backend__in=VLM_BACKENDS).order_by("name").first()
+    )
+    ImageDescribeConfig.objects.get_or_create(
+        pk=1,
+        defaults={
+            "provider": default_vlm,
+            "model": "",
+            "prompt": default_image_describe_prompt(),
+            "page_prompt": default_image_describe_page_prompt(),
+            "min_description_chars": 40,
         },
     )
 

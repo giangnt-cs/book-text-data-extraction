@@ -324,11 +324,17 @@
   <div class="md-clean-panel" id="chunk-panel">
     <h3>Phân đoạn (chunking)</h3>
     <p style="margin:0 0 0.75rem;font-size:0.8125rem;color:#64748b;">
-      Trước khi phân đoạn: LLM chỉ trả <code>true</code>/<code>false</code> để nối đoạn dang dở
-      qua ranh giới trang, rồi neo <code>&lt;!-- Trang N --&gt;</code> sau đoạn đầu mỗi trang.
-      Sau đó gửi N trang (đánh số đoạn [1], [2], …); mỗi <code>&lt;/break&gt;</code> kèm
-      <code>&lt;!-- Trang P --&gt;</code> để RAG cắt đoạn và trích dẫn đúng trang.
+      Phương pháp hiện tại: <strong>{{ chunking_method_label }}</strong>
+      (đổi ở Admin → LLM → Phân đoạn).
+      {% if chunking_method == "poincare" %}
+      Poincaré cắt đề mục bằng regex, gom đoạn ngắn, rồi embed cửa sổ và chọn điểm cắt theo Depth Score.
+      Nút bên dưới dùng đúng tham số đã lưu trong cấu hình.
+      {% else %}
+      LLM nối đoạn dang dở qua ranh giới trang, rồi gửi N trang; chỉ trả JSON
+      <code>{"break_after": [2, 5]}</code>.
+      {% endif %}
     </p>
+    {% if chunking_method != "poincare" %}
     <div class="md-clean-row">
       <label for="chunk-provider">LLM</label>
       <select id="chunk-provider">
@@ -353,10 +359,13 @@
     </div>
     <label for="chunk-prompt" style="font-size:0.8125rem;font-weight:600;color:#475569;">Prompt</label>
     <textarea id="chunk-prompt" class="md-clean-prompt">{{ chunking_prompt }}</textarea>
+    {% endif %}
     <div class="md-clean-buttons">
       <button type="button" class="md-clean-btn md-clean-btn--primary" id="btn-chunk-start">Phân đoạn</button>
       <button type="button" class="md-clean-btn md-clean-btn--secondary" id="btn-chunk-cancel">Hủy phân đoạn</button>
+      {% if chunking_method != "poincare" %}
       <button type="button" class="md-clean-btn md-clean-btn--secondary" id="btn-chunk-save-prompt">Lưu cấu hình</button>
+      {% endif %}
       <button type="button" class="md-clean-btn md-clean-btn--danger" id="btn-chunk-revert">Xóa phân đoạn</button>
     </div>
     <div class="md-clean-status" id="chunk-status"></div>
@@ -484,10 +493,10 @@
 
   function updateButtons() {
     const busy = jobBusy();
-    btnChunkStart.disabled = busy;
-    btnChunkRevert.disabled = actionBusy;
-    btnChunkSavePrompt.disabled = actionBusy;
-    btnChunkCancel.disabled = !chunkingActive || actionBusy;
+    if (btnChunkStart) btnChunkStart.disabled = busy;
+    if (btnChunkRevert) btnChunkRevert.disabled = actionBusy;
+    if (btnChunkSavePrompt) btnChunkSavePrompt.disabled = actionBusy;
+    if (btnChunkCancel) btnChunkCancel.disabled = !chunkingActive || actionBusy;
   }
 
   function setChunkingActive(active) {
@@ -512,7 +521,7 @@
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) {
-      throw new Error(data.error || ("HTTP " + resp.status));
+      throw new Error(data.error || (resp.status === 403 ? "Hết phiên đăng nhập — tải lại trang." : ("HTTP " + resp.status)));
     }
     return data;
   }
@@ -534,7 +543,9 @@
           return;
         }
         if (b.status === "failed") {
-          setChunkStatus("Lỗi: " + (b.error_message || "Không xác định"), true);
+          const msg = b.error_message || "Không xác định";
+          const cancelled = /hủy/i.test(msg);
+          setChunkStatus((cancelled ? "" : "Lỗi: ") + msg, !cancelled);
           setChunkingActive(false);
           stopChunkPoll();
           return;
@@ -570,36 +581,38 @@
 
   function chunkWindowPayload() {
     return {
-      window_pages: Number(chunkWindowEl.value || 2),
-      overlap_pages: Number(chunkOverlapEl.value || 0),
+      window_pages: Number((chunkWindowEl && chunkWindowEl.value) || 2),
+      overlap_pages: Number((chunkOverlapEl && chunkOverlapEl.value) || 0),
     };
   }
 
   btnChunkStart.addEventListener("click", async () => {
-    if (!chunkProviderEl.value) {
-      setChunkStatus("Chưa có LLM được cấu hình.", true);
-      return;
-    }
-    const windowPages = Number(chunkWindowEl.value || 0);
-    const overlapPages = Number(chunkOverlapEl.value || 0);
-    if (!Number.isInteger(windowPages) || windowPages < 1 || windowPages > 20) {
-      setChunkStatus("Số trang mỗi lần gửi phải từ 1 đến 20.", true);
-      return;
-    }
-    if (!Number.isInteger(overlapPages) || overlapPages < 0 || overlapPages >= windowPages) {
-      setChunkStatus("Số trang trùng phải từ 0 và nhỏ hơn số trang mỗi lần gửi.", true);
-      return;
+    const payload = {};
+    if (chunkProviderEl) {
+      if (!chunkProviderEl.value) {
+        setChunkStatus("Chưa có LLM được cấu hình.", true);
+        return;
+      }
+      const windowPages = Number(chunkWindowEl.value || 0);
+      const overlapPages = Number(chunkOverlapEl.value || 0);
+      if (!Number.isInteger(windowPages) || windowPages < 1 || windowPages > 20) {
+        setChunkStatus("Số trang mỗi lần gửi phải từ 1 đến 20.", true);
+        return;
+      }
+      if (!Number.isInteger(overlapPages) || overlapPages < 0 || overlapPages >= windowPages) {
+        setChunkStatus("Số trang trùng phải từ 0 và nhỏ hơn số trang mỗi lần gửi.", true);
+        return;
+      }
+      payload.provider_id = chunkProviderEl.value;
+      payload.prompt = chunkPromptEl ? chunkPromptEl.value : "";
+      payload.window_pages = windowPages;
+      payload.overlap_pages = overlapPages;
     }
     setActionBusy(true);
     setChunkStatus("Đang gửi yêu cầu phân đoạn…");
     try {
-      await postJson(urls.chunkStart, {
-        provider_id: chunkProviderEl.value,
-        prompt: chunkPromptEl.value,
-        window_pages: windowPages,
-        overlap_pages: overlapPages,
-      });
-      setChunkStatus("Đã gửi vào hàng đợi — cửa sổ " + windowPages + " trang, trùng " + overlapPages + "…");
+      await postJson(urls.chunkStart, payload);
+      setChunkStatus("Đã gửi vào hàng đợi phân đoạn…");
       setChunkingActive(true);
       startChunkPoll();
     } catch (e) {
@@ -609,7 +622,7 @@
     }
   });
 
-  btnChunkSavePrompt.addEventListener("click", async () => {
+  if (btnChunkSavePrompt) btnChunkSavePrompt.addEventListener("click", async () => {
     setActionBusy(true);
     try {
       const data = await postJson(urls.chunkSavePrompt, {
@@ -652,6 +665,7 @@
       setChunkStatus(data.message || "Đã hủy phân đoạn.");
       setChunkingActive(false);
       stopChunkPoll();
+      await pollChunkStatus();
     } catch (e) {
       setChunkStatus(e.message, true);
     } finally {

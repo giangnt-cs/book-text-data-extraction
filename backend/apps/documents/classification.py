@@ -118,6 +118,86 @@ BOOK_CLASS_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _format_stat(value) -> str:
+    if value is None:
+        return "0"
+    number = float(value)
+    if abs(number - round(number)) < 1e-9:
+        return f"{int(round(number)):,}".replace(",", ".")
+    return f"{number:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+TOKEN_BIN_SIZE = 50
+
+
+def _token_histogram(bin_size: int = TOKEN_BIN_SIZE) -> list[dict]:
+    from django.db.models import Count, F, IntegerField, Value
+    from django.db.models.functions import Cast, Floor
+
+    from apps.dataset.models import SourceChunk
+
+    rows = (
+        SourceChunk.objects.annotate(
+            bucket=Cast(
+                Floor(F("token_count") / Value(float(bin_size))) * Value(bin_size),
+                IntegerField(),
+            )
+        )
+        .values("bucket")
+        .annotate(n=Count("id"))
+        .order_by("bucket")
+    )
+    counts = {int(row["bucket"] or 0): int(row["n"] or 0) for row in rows}
+    if not counts:
+        return []
+    hi = max(counts)
+    bin_count = hi // bin_size + 1
+    starts = range(0, hi + bin_size, bin_size) if bin_count <= 60 else sorted(counts)
+    bins = []
+    for start in starts:
+        end = start + bin_size - 1
+        n = counts.get(start, 0)
+        bins.append(
+            {
+                "start": start,
+                "end": end,
+                "label": f"{start}–{end}",
+                "count": n,
+                "count_display": _format_stat(n),
+            }
+        )
+    return bins
+
+
+def _chunk_token_stats() -> dict:
+    from django.db.models import Aggregate, Avg, Count, FloatField, Sum
+
+    from apps.dataset.models import SourceChunk
+
+    class Median(Aggregate):
+        function = "PERCENTILE_CONT"
+        name = "Median"
+        template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+        output_field = FloatField()
+
+    agg = SourceChunk.objects.aggregate(
+        chunk_count=Count("id"),
+        token_total=Sum("token_count"),
+        token_avg=Avg("token_count"),
+        token_median=Median("token_count"),
+    )
+    return {
+        "chunk_count": int(agg["chunk_count"] or 0),
+        "chunk_count_display": _format_stat(agg["chunk_count"] or 0),
+        "token_total": int(agg["token_total"] or 0),
+        "token_total_display": _format_stat(agg["token_total"] or 0),
+        "token_avg_display": _format_stat(agg["token_avg"] or 0),
+        "token_median_display": _format_stat(agg["token_median"] or 0),
+        "token_bin_size": TOKEN_BIN_SIZE,
+        "token_bins": _token_histogram(),
+    }
+
+
 def build_book_classification_stats() -> dict:
     """Số sách theo từng thuật ngữ, tách riêng từng nhóm phân loại."""
     from django.db.models import Count
@@ -147,6 +227,7 @@ def build_book_classification_stats() -> dict:
         .distinct()
         .count()
     )
+    tokens = _chunk_token_stats()
     groups: list[dict] = []
 
     for field_name, slug in BOOK_CLASS_FIELDS:
@@ -204,5 +285,6 @@ def build_book_classification_stats() -> dict:
         "cleaned_count": cleaned_count,
         "approved_count": approved_count,
         "chunked_count": chunked_count,
+        **tokens,
         "groups": groups,
     }

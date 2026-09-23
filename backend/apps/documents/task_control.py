@@ -272,6 +272,121 @@ def cancel_ingest() -> str:
     return "Đã đặt cờ hủy nhập sách — task sẽ dừng ở mục kế tiếp."
 
 
+def _ragflow_cancel_key(document_id: str) -> str:
+    return f"ragflow:cancel:document:{document_id}"
+
+
+def _ragflow_lock_key(document_id: str) -> str:
+    return f"ragflow:lock:document:{document_id}"
+
+
+def set_ragflow_task_id(document_id: str, task_id: str, *, ttl: int = 21600) -> None:
+    _redis_set(_ragflow_lock_key(document_id), task_id, ttl=ttl)
+
+
+def get_ragflow_task_id(document_id: str) -> str | None:
+    return _redis_get(_ragflow_lock_key(document_id))
+
+
+def release_ragflow_lock(document_id: str, task_id: str) -> None:
+    try:
+        client = _redis_client()
+        key = _ragflow_lock_key(document_id)
+        current = client.get(key)
+        expected = task_id.encode() if isinstance(task_id, str) else task_id
+        if current in {expected, task_id}:
+            client.delete(key)
+    except Exception as e:
+        logger.warning("Không giải phóng lock nạp RAGFlow %s: %s", document_id, e)
+
+
+def request_cancel_ragflow(document_id: str) -> None:
+    _redis_set(_ragflow_cancel_key(document_id), "1", ttl=21600)
+
+
+def is_ragflow_cancelled(document_id: str) -> bool:
+    return bool(_redis_get(_ragflow_cancel_key(document_id)))
+
+
+def clear_ragflow_cancel(document_id: str) -> None:
+    _redis_delete(_ragflow_cancel_key(document_id))
+
+
+def check_ragflow_cancelled(document_id: str) -> None:
+    if is_ragflow_cancelled(document_id):
+        raise TaskCancelled("Người dùng đã ngưng nạp RAGFlow.")
+
+
+def cancel_ragflow_sync_task(document_id: str) -> str:
+    request_cancel_ragflow(document_id)
+    task_id = get_ragflow_task_id(document_id)
+    if task_id:
+        revoke_celery_task(task_id)
+        return f"Đã gửi yêu cầu ngưng nạp RAGFlow (task {task_id[:8]}…)."
+    return "Đã đặt cờ ngưng nạp RAGFlow — task sẽ dừng ở đoạn kế tiếp."
+
+
+def _image_extract_cancel_key(book_id: str) -> str:
+    return f"image_extract:cancel:book:{book_id}"
+
+
+def _image_extract_lock_key(book_id: str) -> str:
+    return f"image_extract:lock:book:{book_id}"
+
+
+def acquire_image_extract_lock(book_id: str, task_id: str, *, ttl: int = 21600) -> bool:
+    try:
+        return bool(_redis_client().set(_image_extract_lock_key(book_id), task_id, nx=True, ex=ttl))
+    except Exception as e:
+        logger.warning("Không tạo lock rút trích hình %s: %s", book_id, e)
+        return True
+
+
+def set_image_extract_task_id(book_id: str, task_id: str, *, ttl: int = 21600) -> None:
+    _redis_set(_image_extract_lock_key(book_id), task_id, ttl=ttl)
+
+
+def get_image_extract_task_id(book_id: str) -> str | None:
+    return _redis_get(_image_extract_lock_key(book_id))
+
+
+def release_image_extract_lock(book_id: str, task_id: str) -> None:
+    try:
+        client = _redis_client()
+        key = _image_extract_lock_key(book_id)
+        current = client.get(key)
+        if current in {task_id.encode() if isinstance(task_id, str) else task_id, task_id}:
+            client.delete(key)
+    except Exception as e:
+        logger.warning("Không giải phóng lock rút trích hình %s: %s", book_id, e)
+
+
+def request_cancel_image_extract(book_id: str) -> None:
+    _redis_set(_image_extract_cancel_key(book_id), "1", ttl=21600)
+
+
+def is_image_extract_cancelled(book_id: str) -> bool:
+    return bool(_redis_get(_image_extract_cancel_key(book_id)))
+
+
+def clear_image_extract_cancel(book_id: str) -> None:
+    _redis_delete(_image_extract_cancel_key(book_id))
+
+
+def check_image_extract_cancelled(book_id: str) -> None:
+    if is_image_extract_cancelled(book_id):
+        raise TaskCancelled("Người dùng đã ngưng rút trích hình.")
+
+
+def cancel_image_extract(book_id: str) -> str:
+    request_cancel_image_extract(book_id)
+    task_id = get_image_extract_task_id(book_id)
+    if task_id:
+        revoke_celery_task(task_id)
+        return f"Đã gửi yêu cầu ngưng rút trích hình (task {task_id[:8]}…)."
+    return "Đã đặt cờ ngưng rút trích hình — task sẽ dừng ở hình kế tiếp."
+
+
 def _dedupe_lock_key() -> str:
     return "dedupe:lock"
 

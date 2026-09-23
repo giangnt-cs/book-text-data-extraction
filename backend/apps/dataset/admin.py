@@ -46,9 +46,10 @@ from apps.llm.chunking_runner import (
     resolve_chunking_provider,
     save_chunking_settings,
 )
-from apps.llm.models import LLMProvider
+from apps.llm.models import ChunkingMethod, LLMProvider
 from ocr_llm.prompts import default_page_chunking_prompt
 from apps.dataset import admin_chunks as _admin_chunks  # noqa: F401
+from apps.dataset import admin_images as _admin_images  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +111,18 @@ class SourceDocumentAdmin(ModelAdmin):
         "segment_count",
         "status_badge",
         "markdown_link",
-        "created_at",
+        "updated_at",
     )
+    ordering = ("-updated_at",)
     list_filter = (SourceWorkflowFilter, "source_type", ClassificationStatusFilter, *BOOK_CLASS_LIST_FILTERS)
     list_filter_submit = True
     search_help_text = "Tên văn bản, mã DSG_fff (ví dụ MAV_001), mã nhóm phân loại."
     search_fields = (
         "catalog_code",
         "title",
+        "author",
+        "publisher",
+        "published_year",
         "original_name",
         "book__title",
         "class_source__code",
@@ -153,6 +158,16 @@ class SourceDocumentAdmin(ModelAdmin):
     actions_submit_line = ["run_classify"]
     fieldsets = (
         (None, {"fields": ("title", "source_type", "book", "original_name", "markdown_file")}),
+        (
+            "Thông tin xuất bản",
+            {
+                "fields": ("author", "publisher", "published_year"),
+                "description": (
+                    "Sao chép từ sách đã duyệt, điền tay, hoặc bấm «Phân loại tự động» "
+                    "để LLM đọc các đoạn Markdown đầu. Gửi kèm khi nạp RAGFlow."
+                ),
+            },
+        ),
         (
             "Phân loại",
             {
@@ -415,6 +430,30 @@ class SourceDocumentAdmin(ModelAdmin):
             return False, running
         try:
             config = get_chunking_config()
+            method = config.method or ChunkingMethod.LLM
+            if method == ChunkingMethod.POINCARE:
+                from apps.dataset.poincare_runner import poincare_settings_summary
+
+                if not (config.embed_host or "").strip() or not (config.embed_model or "").strip():
+                    return False, "Chưa cấu hình host/model embedding Poincaré."
+                batch = SourceChunkingBatch.objects.create(
+                    document=document,
+                    method=ChunkingMethod.POINCARE,
+                    provider=None,
+                    model=config.embed_model or "",
+                    prompt=poincare_settings_summary(config),
+                    window_pages=config.window_pages,
+                    overlap_pages=config.overlap_pages,
+                    status=ChunkingBatchStatus.PENDING,
+                    created_by=request.user if request.user.is_authenticated else None,
+                )
+                current_app.send_task(
+                    "apps.dataset.tasks.chunk_source_document",
+                    kwargs={"batch_id": str(batch.id)},
+                    queue="cpu",
+                )
+                document.touch()
+                return True, str(batch.id)
             if provider is None:
                 provider = resolve_chunking_provider(config)
                 if model is None:
@@ -432,6 +471,7 @@ class SourceDocumentAdmin(ModelAdmin):
         window_pages, overlap_pages = normalize_chunk_window(window_pages, overlap_pages)
         batch = SourceChunkingBatch.objects.create(
             document=document,
+            method=ChunkingMethod.LLM,
             provider=provider,
             model=model or "",
             prompt=prompt,
@@ -445,6 +485,7 @@ class SourceDocumentAdmin(ModelAdmin):
             kwargs={"batch_id": str(batch.id)},
             queue="cpu",
         )
+        document.touch()
         return True, str(batch.id)
 
     def _cancel_chunking(self, document: SourceDocument) -> tuple[bool, str]:
@@ -463,6 +504,7 @@ class SourceDocumentAdmin(ModelAdmin):
             error_message="Người dùng đã hủy phân đoạn.",
             updated_at=timezone.now(),
         )
+        document.touch()
         return True, msg
 
     def view_markdown(self, request, object_id):
@@ -488,6 +530,8 @@ class SourceDocumentAdmin(ModelAdmin):
             "using_chunked": source == "chunked",
             "display_source": source,
             "chunking_prompt": self._chunking_prompt_text(),
+            "chunking_method": chunk_config.method or ChunkingMethod.LLM,
+            "chunking_method_label": chunk_config.get_method_display(),
             "chunk_window_pages": chunk_config.window_pages,
             "chunk_overlap_pages": chunk_config.overlap_pages,
             "cleaning_providers": self._providers_payload(),
@@ -519,6 +563,16 @@ class SourceDocumentAdmin(ModelAdmin):
         except json.JSONDecodeError:
             payload = {}
         prompt = (payload.get("prompt") or "").strip()
+        config = get_chunking_config()
+        if (config.method or ChunkingMethod.LLM) == ChunkingMethod.POINCARE:
+            running = self._job_running(document)
+            if running:
+                return JsonResponse({"ok": False, "error": running}, status=409)
+            ok, detail = self._enqueue_chunking(request, document)
+            if not ok:
+                status = 409 if "đang chạy" in detail else 400
+                return JsonResponse({"ok": False, "error": detail}, status=status)
+            return JsonResponse({"ok": True, "batch_id": detail})
         try:
             saved = save_chunking_settings(
                 prompt=prompt or None,
@@ -528,7 +582,6 @@ class SourceDocumentAdmin(ModelAdmin):
         except ValueError as e:
             return JsonResponse({"ok": False, "error": str(e)}, status=400)
         prompt = saved.prompt
-        config = get_chunking_config()
         provider_id = payload.get("provider_id")
         if provider_id:
             provider = get_object_or_404(LLMProvider, pk=provider_id, is_active=True)
@@ -563,11 +616,20 @@ class SourceDocumentAdmin(ModelAdmin):
             status__in=[ChunkingBatchStatus.PENDING, ChunkingBatchStatus.PROCESSING]
         ):
             cancel_chunking_batch(str(batch.id))
-        deleted = purge_source_chunking(document)
+        try:
+            deleted = purge_source_chunking(document)
+        except RuntimeError as exc:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=500)
+        source = markdown_display_source(document)
+        if source == "chunked":
+            return JsonResponse(
+                {"ok": False, "error": "Đã gọi xóa nhưng bản phân đoạn vẫn còn. Thử lại hoặc tải lại trang."},
+                status=500,
+            )
         return JsonResponse({
             "ok": True,
             "deleted": deleted,
-            "source": markdown_display_source(document),
+            "source": source,
             "reload": True,
         })
 
@@ -591,7 +653,7 @@ class SourceDocumentAdmin(ModelAdmin):
             payload["batch"] = {
                 "id": str(batch.id),
                 "status": batch.status,
-                "provider": batch.provider.name,
+                "provider": batch.provider.name if batch.provider_id else (batch.method or "llm"),
                 "progress": progress,
                 "total": total,
                 "breaks": breaks,
@@ -721,14 +783,15 @@ class SourceDocumentAdmin(ModelAdmin):
 
     @admin.action(description="Phân đoạn hàng loạt")
     def bulk_chunk_text(self, request, queryset):
-        try:
-            resolve_chunking_provider()
-        except RuntimeError as e:
-            messages.error(request, str(e))
-            return
+        config = get_chunking_config()
+        if (config.method or ChunkingMethod.LLM) == ChunkingMethod.LLM:
+            try:
+                resolve_chunking_provider()
+            except RuntimeError as e:
+                messages.error(request, str(e))
+                return
         queued = 0
         skipped = 0
-        config = get_chunking_config()
         for document in queryset:
             ok, detail = self._enqueue_chunking(request, document)
             if ok:
@@ -737,11 +800,18 @@ class SourceDocumentAdmin(ModelAdmin):
                 skipped += 1
                 messages.warning(request, f"«{document.title}»: {detail}")
         if queued:
-            messages.success(
-                request,
-                f"Đã gửi {queued} văn bản vào hàng đợi phân đoạn "
-                f"(cửa sổ {config.window_pages} trang, trùng {config.overlap_pages}).",
-            )
+            if (config.method or "") == ChunkingMethod.POINCARE:
+                messages.success(
+                    request,
+                    f"Đã gửi {queued} văn bản vào hàng đợi phân đoạn Poincaré "
+                    f"(window {config.poincare_window}, step {config.poincare_step}).",
+                )
+            else:
+                messages.success(
+                    request,
+                    f"Đã gửi {queued} văn bản vào hàng đợi phân đoạn "
+                    f"(cửa sổ {config.window_pages} trang, trùng {config.overlap_pages}).",
+                )
         if skipped and not queued:
             messages.warning(request, "Không gửi được văn bản nào.")
 

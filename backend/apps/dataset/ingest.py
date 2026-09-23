@@ -10,6 +10,7 @@ from django.core.files.base import ContentFile
 
 from apps.dataset.catalog import (
     CLASS_FIELD_NAMES,
+    PUBLICATION_FIELD_NAMES,
     assign_catalog_code,
     copy_book_classification,
 )
@@ -111,7 +112,14 @@ def sync_source_from_book(book, *, created_by=None) -> SourceDocument | None:
     if not skip_content:
         save_markdown_file(document, content, filename=document.original_name)
 
-    update_fields = ["title", "source_type", "original_name", *CLASS_FIELD_NAMES, "updated_at"]
+    update_fields = [
+        "title",
+        "source_type",
+        "original_name",
+        *CLASS_FIELD_NAMES,
+        *PUBLICATION_FIELD_NAMES,
+        "updated_at",
+    ]
     if created:
         document.save()
     else:

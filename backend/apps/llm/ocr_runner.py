@@ -82,8 +82,10 @@ def describe_page_ocr_providers(book: Book | None = None) -> dict[str, str]:
     }
 
 
-def _cache_key(provider: OCRProvider) -> str:
+def _cache_key(provider: OCRProvider, *, model_override: str = "") -> str:
     api_key, base_url, model = provider.resolve_llm_credentials()
+    if (model_override or "").strip():
+        model = model_override.strip()
     gen = ""
     if provider.llm_id and provider.llm:
         kw = provider.llm.generation_kwargs()
@@ -91,14 +93,16 @@ def _cache_key(provider: OCRProvider) -> str:
     return f"{provider.pk}:{provider.llm_id}:{model}:{base_url}:{bool(api_key)}{gen}"
 
 
-def get_ocr_client(provider: OCRProvider):
+def get_ocr_client(provider: OCRProvider, *, model_override: str = ""):
     from ocr_llm.providers import build_ocr_provider
 
-    key = _cache_key(provider)
+    key = _cache_key(provider, model_override=model_override)
     if key in _client_cache:
         return _client_cache[key]
 
     api_key, base_url, model = provider.resolve_llm_credentials()
+    if (model_override or "").strip():
+        model = model_override.strip()
     params = dict(provider.params or {})
     if provider.llm_id and provider.llm:
         params.update(provider.llm.generation_kwargs())
@@ -249,6 +253,17 @@ def ocr_full_page(
             )
             current = nxt
             continue
+
+        if not text:
+            nxt = current.next_active_fallback(tried)
+            if nxt is not None:
+                logger.warning(
+                    "OCR «%s» trả về rỗng — fallback «%s»",
+                    current.name,
+                    nxt.name,
+                )
+                current = nxt
+                continue
 
         if text and current.backend in VLM_BACKENDS:
             from ocr_llm.document_ai import postprocess_ocr_text

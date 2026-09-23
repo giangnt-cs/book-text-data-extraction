@@ -39,9 +39,22 @@ def collect_source_front_text(document: SourceDocument, *, max_pages: int = 20) 
 
 
 def apply_source_classify_result(document: SourceDocument, data: dict[str, Any]) -> list[str]:
-    """Ghi 5 nhóm phân loại lên văn bản nguồn, rồi gán mã DSG_fff."""
+    """Ghi metadata xuất bản và 5 nhóm phân loại, rồi gán mã DSG_fff."""
     filled: list[str] = []
     updates: list[str] = []
+    mapping = (
+        ("author", "author", "Tên tác giả"),
+        ("publisher", "publisher", "Nhà xuất bản"),
+        ("published_year", "published_year", "Năm xuất bản"),
+    )
+    for key, attr, label in mapping:
+        value = str(data.get(key) or "").strip()
+        if not value:
+            continue
+        if value != getattr(document, attr):
+            setattr(document, attr, value[: 400 if attr != "published_year" else 32])
+            updates.append(attr)
+        filled.append(label)
     for field_name, slug in BOOK_CLASS_FIELDS:
         term = _term_for(slug, str(data.get(field_name) or ""))
         if term is None:

@@ -67,15 +67,55 @@ class ChunkingConfigForm(LLMFeatureConfigForm):
         from .models import ChunkingConfig
 
         model = ChunkingConfig
-        fields = ("provider", "model", "window_pages", "overlap_pages", "prompt", "stitch_prompt")
+        fields = (
+            "method",
+            "provider",
+            "model",
+            "window_pages",
+            "overlap_pages",
+            "prompt",
+            "stitch_prompt",
+            "embed_backend",
+            "embed_host",
+            "embed_model",
+            "embed_api_key",
+            "embed_batch_size",
+            "poincare_window",
+            "poincare_step",
+            "poincare_c",
+            "smooth_s",
+            "smooth_n",
+            "min_tokens",
+            "max_tokens",
+        )
         widgets = {
             **LLMFeatureConfigForm.Meta.widgets,
             "window_pages": forms.NumberInput(attrs={"min": "1", "max": "20"}),
             "overlap_pages": forms.NumberInput(attrs={"min": "0", "max": "19"}),
+            "embed_api_key": forms.PasswordInput(render_value=True, attrs={"autocomplete": "new-password"}),
+            "poincare_c": forms.NumberInput(attrs={"step": "0.1", "min": "0.01"}),
+            "smooth_s": forms.NumberInput(attrs={"min": "0", "step": "2"}),
+            "embed_batch_size": forms.NumberInput(attrs={"min": "1"}),
+            "poincare_window": forms.NumberInput(attrs={"min": "1"}),
+            "poincare_step": forms.NumberInput(attrs={"min": "1"}),
+            "min_tokens": forms.NumberInput(attrs={"min": "0"}),
+            "max_tokens": forms.NumberInput(attrs={"min": "0"}),
         }
 
     def clean(self):
+        from .models import ChunkingMethod
+
         cleaned = super().clean()
+        if cleaned.get("method") == ChunkingMethod.POINCARE:
+            if int(cleaned.get("smooth_s") or 0) % 2 != 0:
+                self.add_error("smooth_s", "Làm mịn s phải là số chẵn.")
+            if float(cleaned.get("poincare_c") or 0) <= 0:
+                self.add_error("poincare_c", "Độ cong c phải > 0.")
+            if not (cleaned.get("embed_host") or "").strip():
+                self.add_error("embed_host", "Nhập host embedding.")
+            if not (cleaned.get("embed_model") or "").strip():
+                self.add_error("embed_model", "Nhập model embedding.")
+            return cleaned
         window = cleaned.get("window_pages")
         overlap = cleaned.get("overlap_pages")
         if window is None or overlap is None:
@@ -87,6 +127,24 @@ class ChunkingConfigForm(LLMFeatureConfigForm):
         elif overlap >= window:
             self.add_error("overlap_pages", "Số trang trùng phải nhỏ hơn số trang gửi mỗi lần.")
         return cleaned
+
+
+class ChunkResizeConfigForm(LLMFeatureConfigForm):
+    class Meta(LLMFeatureConfigForm.Meta):
+        from .models import ChunkResizeConfig
+
+        model = ChunkResizeConfig
+        fields = ("provider", "model", "max_tokens", "prompt")
+        widgets = {
+            **LLMFeatureConfigForm.Meta.widgets,
+            "max_tokens": forms.NumberInput(attrs={"min": "100", "step": "100"}),
+        }
+
+    def clean_max_tokens(self):
+        value = self.cleaned_data.get("max_tokens")
+        if value is not None and int(value) < 100:
+            raise ValidationError("Giới hạn token phải từ 100 trở lên.")
+        return value
 
 
 class BookIngestConfigForm(LLMFeatureConfigForm):
@@ -103,6 +161,39 @@ class BookDedupeConfigForm(LLMFeatureConfigForm):
 
         model = BookDedupeConfig
         fields = ("provider", "model", "batch_size", "prompt")
+
+
+class ImageDescribeConfigForm(LLMFeatureConfigForm):
+    class Meta(LLMFeatureConfigForm.Meta):
+        from .models import ImageDescribeConfig
+
+        model = ImageDescribeConfig
+        fields = ("provider", "model", "min_description_chars", "prompt", "page_prompt")
+        widgets = {
+            **LLMFeatureConfigForm.Meta.widgets,
+            "min_description_chars": forms.NumberInput(attrs={"min": "1", "step": "5"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = OCRProvider.objects.filter(backend__in=VLM_BACKENDS).order_by("name")
+        self.fields["provider"].queryset = qs
+        self.fields["provider"].label = "VLM"
+        self.fields["provider"].help_text = (
+            "Chọn công cụ VLM đã khai báo ở «Công cụ OCR». Để trống = VLM đang kích hoạt."
+        )
+
+    def clean_min_description_chars(self):
+        value = self.cleaned_data.get("min_description_chars")
+        if value is not None and int(value) < 1:
+            raise ValidationError("Độ dài tối thiểu phải từ 1 trở lên.")
+        return value
+
+    def clean_provider(self):
+        provider = self.cleaned_data.get("provider")
+        if provider is not None and provider.backend not in VLM_BACKENDS:
+            raise ValidationError("Chỉ chọn công cụ VLM (Gemini / Ollama / vLLM / ChatGPT / DeepSeek).")
+        return provider
 
 
 class OCRProviderForm(forms.ModelForm):

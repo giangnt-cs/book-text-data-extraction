@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from apps.llm.models import ChunkingConfig, LLMProvider
+from apps.llm.models import ChunkingConfig, ChunkResizeConfig, LLMProvider
 from apps.llm.text_cleaning_runner import get_default_llm, get_text_llm_client
 from ocr_llm.prompts import (
     build_window_chunking_prompt,
@@ -332,6 +332,34 @@ def save_chunking_settings(
         fields.extend(["window_pages", "overlap_pages"])
     config.save(update_fields=fields)
     return config
+
+
+def get_chunk_resize_config() -> ChunkResizeConfig:
+    chunking = get_chunking_config()
+    prompt = (chunking.prompt or "").strip() or default_page_chunking_prompt()
+    obj, _ = ChunkResizeConfig.objects.get_or_create(
+        pk=1,
+        defaults={
+            "provider": chunking.provider,
+            "model": chunking.model or "",
+            "max_tokens": 5000,
+            "prompt": prompt,
+        },
+    )
+    if not (obj.prompt or "").strip():
+        obj.prompt = prompt
+        obj.save(update_fields=["prompt", "updated_at"])
+    if int(obj.max_tokens or 0) < 100:
+        obj.max_tokens = 5000
+        obj.save(update_fields=["max_tokens", "updated_at"])
+    return obj
+
+
+def resolve_chunk_resize_provider(config: ChunkResizeConfig | None = None) -> LLMProvider:
+    config = config or get_chunk_resize_config()
+    if config.provider_id and config.provider and config.provider.is_active:
+        return config.provider
+    return resolve_chunking_provider()
 
 
 def count_breaks(text: str) -> int:

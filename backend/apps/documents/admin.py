@@ -10,6 +10,7 @@ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.admin.utils import quote
 from celery import current_app
+from django.core.files import File
 from django.core.files.storage import default_storage
 from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect, JsonResponse
@@ -68,6 +69,7 @@ from .markdown import (
     save_page_review_text,
 )
 from .task_control import cancel_book_ocr, cancel_cleaning_batch
+from apps.dataset.extract_images import cancel_book_image_extract, enqueue_book_image_extract
 
 _BOX_COLORS = {
     ContentType.TEXT: "#22c55e",
@@ -451,6 +453,7 @@ class ClassificationGroupAdmin(ModelAdmin):
 @admin.register(Book)
 class BookAdmin(ModelAdmin):
     form = BookAdminForm
+    change_form_template = "admin/documents/book_change_form.html"
     list_display = (
         "title",
         "page_count_link",
@@ -505,6 +508,8 @@ class BookAdmin(ModelAdmin):
         "auto_classify",
         "check_duplicate_titles",
         "bulk_change_status",
+        "extract_images_bulk",
+        "cancel_extract_images",
         "download_markdown_zip",
     ]
     actions_submit_line = ["run_ocr", "cancel_ocr", "approve_ocr", "unapprove_ocr", "run_classify"]
@@ -570,15 +575,49 @@ class BookAdmin(ModelAdmin):
         if request.user.is_authenticated and (not change or not obj.created_by_id):
             obj.created_by = request.user
 
+        token = (request.POST.get("pdf_upload_token") or "").strip()
+        token_name = (request.POST.get("pdf_upload_name") or "book.pdf").replace("\\", "/").rsplit("/", 1)[-1]
+        token_name = token_name.strip() or "book.pdf"
+        if token:
+            from apps.documents.admin_staging import assembled_pdf_path, cleanup_upload_session
+
+            assembled = assembled_pdf_path(token)
+            if assembled is None:
+                messages.error(request, "Phiên tải PDF đã hết hạn. Hãy chọn lại file.")
+                return
+            ok, err = validate_pdf(pdf_path=str(assembled))
+            if not ok:
+                cleanup_upload_session(token)
+                messages.error(request, err)
+                return
+            try:
+                with assembled.open("rb") as fh:
+                    obj.pdf_file.save(token_name, File(fh, name=token_name), save=False)
+            finally:
+                cleanup_upload_session(token)
+            super().save_model(request, obj, form, change)
+            return
+
         pdf_file = form.cleaned_data.get("pdf_file")
         if pdf_file:
-            try:
-                pdf_file.seek(0)
-                pdf_bytes = pdf_file.read()
-                pdf_file.seek(0)
-            except (AttributeError, OSError):
-                pdf_bytes = b""
-            ok, err = validate_pdf(pdf_bytes=pdf_bytes)
+            temp_path = getattr(pdf_file, "temporary_file_path", None)
+            if callable(temp_path):
+                ok, err = validate_pdf(pdf_path=temp_path())
+            else:
+                try:
+                    pdf_file.seek(0)
+                    head = pdf_file.read(2048)
+                    pdf_file.seek(0)
+                except (AttributeError, OSError):
+                    head = b""
+                if not head.lstrip().startswith(b"%PDF"):
+                    ok, err = False, "File không phải PDF hợp lệ (thiếu header %PDF)."
+                else:
+                    ok, err = validate_pdf(pdf_bytes=pdf_file.read())
+                    try:
+                        pdf_file.seek(0)
+                    except (AttributeError, OSError):
+                        pass
             if not ok:
                 messages.error(request, err)
                 return
@@ -912,8 +951,44 @@ class BookAdmin(ModelAdmin):
     def run_classify(self, request, obj):
         self._run_book_classify(request, obj, async_ok=False)
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["pdf_upload_chunk_url"] = reverse("admin:documents_book_upload_chunk")
+        extra_context["pdf_upload_finish_url"] = reverse("admin:documents_book_upload_finish")
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    @method_decorator(require_POST)
+    def upload_chunk_view(self, request):
+        from apps.documents.admin_staging import receive_upload_chunk
+
+        return receive_upload_chunk(request)
+
+    @method_decorator(require_POST)
+    def upload_finish_view(self, request):
+        from apps.documents.admin_staging import assemble_upload_session
+
+        session = request.POST.get("session") or ""
+        try:
+            total = int(request.POST.get("total") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        assembled, err = assemble_upload_session(session, total)
+        if assembled is None:
+            return JsonResponse({"ok": False, "error": err or "Phiên upload không hợp lệ."})
+        return JsonResponse({"ok": True, "token": session})
+
     def get_urls(self):
         return [
+            path(
+                "upload-chunk/",
+                self.admin_site.admin_view(self.upload_chunk_view),
+                name="documents_book_upload_chunk",
+            ),
+            path(
+                "upload-finish/",
+                self.admin_site.admin_view(self.upload_finish_view),
+                name="documents_book_upload_finish",
+            ),
             path(
                 "duplicate-titles/",
                 self.admin_site.admin_view(self.duplicate_titles_view),
@@ -975,11 +1050,28 @@ class BookAdmin(ModelAdmin):
             for bar in group["bars"]:
                 bar["pct"] = round(100.0 * bar["count"] / total, 1) if total else 0.0
                 bar["url"] = f"{changelist}?{group['field']}={bar['id']}"
+        chunk_changelist = reverse("admin:dataset_chunkeddocument_changelist")
+        chunk_total = int(stats.get("chunk_count") or 0)
+        for bar in stats.get("token_bins") or []:
+            bar["pct"] = round(100.0 * bar["count"] / chunk_total, 1) if chunk_total else 0.0
+            bar["url"] = (
+                f"{chunk_changelist}?token_count_from={bar['start']}&token_count_to={bar['end']}"
+            )
+        token_bins = stats.get("token_bins") or []
         context = {
             **self.admin_site.each_context(request),
-            "title": "Thống kê sách theo phân loại",
+            "title": "Thống kê",
             "stats": stats,
             "changelist_url": changelist,
+            "chunk_changelist_url": chunk_changelist,
+            "token_chart_payload": {
+                "slug": "token-bins",
+                "name": "Phân đoạn theo số token",
+                "horizontal": len(token_bins) > 12,
+                "labels": [bar["label"] for bar in token_bins],
+                "counts": [bar["count"] for bar in token_bins],
+                "urls": [bar["url"] for bar in token_bins],
+            },
             "chart_payload": [
                 {
                     "slug": group["slug"],
@@ -996,7 +1088,7 @@ class BookAdmin(ModelAdmin):
                 {"link": changelist, "title": "Tài liệu"},
                 {
                     "link": reverse("admin:documents_book_classification_stats"),
-                    "title": "Thống kê sách",
+                    "title": "Thống kê",
                 },
             ],
         }
@@ -1360,6 +1452,39 @@ class BookAdmin(ModelAdmin):
             messages.success(request, f"Đã gửi hủy làm sạch {cancelled} sách.")
         if skipped and not cancelled:
             messages.warning(request, "Không có sách nào đang làm sạch.")
+
+    @admin.action(description="Rút trích hình ảnh hàng loạt")
+    def extract_images_bulk(self, request, queryset):
+        queued = 0
+        skipped = 0
+        for book in queryset:
+            ok, detail = enqueue_book_image_extract(book)
+            if ok:
+                queued += 1
+            else:
+                skipped += 1
+                messages.warning(request, f"«{book.title}»: {detail}")
+        if queued:
+            messages.success(request, f"Đã gửi {queued} sách vào hàng đợi rút trích hình.")
+        if skipped and not queued:
+            messages.warning(request, "Không gửi được sách nào.")
+
+    @admin.action(description="Ngưng rút trích hình")
+    def cancel_extract_images(self, request, queryset):
+        cancelled = 0
+        skipped = 0
+        for book in queryset:
+            ok, detail = cancel_book_image_extract(book)
+            if ok:
+                cancelled += 1
+                messages.info(request, f"«{book.title}»: {detail}")
+            else:
+                skipped += 1
+                messages.warning(request, f"«{book.title}»: {detail}")
+        if cancelled:
+            messages.success(request, f"Đã gửi hủy rút trích hình {cancelled} sách.")
+        if skipped and not cancelled:
+            messages.warning(request, "Không có sách nào đang rút trích hình.")
 
     @admin.action(description="Đổi trạng thái hàng loạt")
     def bulk_change_status(self, request, queryset):

@@ -16,11 +16,36 @@
   #result_list tbody tr {
     cursor: pointer;
   }
+  .dataset-chunk-doc-links {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+  }
+  .dataset-chunk-doc-links a {
+    font-weight: 600;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 {% if chunk_document %}
+<div class="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+  <h2 class="m-0 text-lg font-semibold leading-tight">
+    {{ chunk_document.title }}{% if chunk_document.catalog_code %}
+    <span class="font-mono text-sm font-medium text-base-500 dark:text-base-400">· {{ chunk_document.catalog_code }}</span>
+    {% endif %}
+  </h2>
+  <span class="dataset-chunk-doc-links">
+    {% if chunk_source_url %}
+    <a href="{{ chunk_source_url }}" target="_blank" rel="noopener">Xem thông tin</a>
+    {% endif %}
+    {% if chunk_markdown_url %}
+    <a href="{{ chunk_markdown_url }}" target="_blank" rel="noopener">Xem markdown</a>
+    {% endif %}
+  </span>
+</div>
 <div class="mb-4 flex flex-wrap items-center gap-3">
   <a
     href="{{ chunk_documents_url }}"
@@ -50,10 +75,21 @@
     </button>
   </form>
   {% endif %}
+  {% if chunk_resize_url %}
+  <form method="post" action="{{ chunk_resize_url }}" class="inline">
+    {% csrf_token %}
+    <button
+      type="submit"
+      class="inline-flex items-center rounded-default px-3 py-1.5 text-sm font-semibold text-white"
+      style="background:#7c3aed;"
+    >
+      Giảm kích thước đoạn vượt hạn
+    </button>
+  </form>
+  {% endif %}
   <span class="text-sm text-base-500 dark:text-base-400">
-    {{ chunk_document.title }}{% if chunk_document.catalog_code %} · {{ chunk_document.catalog_code }}{% endif %}
-    {% if chunk_ragflow_status %} · {{ chunk_ragflow_status }}{% endif %}
-    — thêm mới, nhấp đôi để sửa, chọn rồi xóa hàng loạt.
+    {% if chunk_ragflow_status %}{{ chunk_ragflow_status }} · {% endif %}
+    thêm mới, nhấp đôi để sửa, chọn rồi xóa hàng loạt.
   </span>
 </div>
 {% endif %}

@@ -32,6 +32,22 @@ class BookAdminForm(forms.ModelForm):
             field.label_from_instance = _term_label
             field.required = False
             field.empty_label = "— Chưa phân loại —"
+        pdf_field = self.fields.get("pdf_file")
+        if pdf_field is not None:
+            pdf_field.help_text = (
+                "PDF lớn sẽ được tải từng phần 512KB. "
+                "File phải đã có trên máy (OneDrive cần tải về trước)."
+            )
+            if (self.data.get("pdf_upload_token") or "").strip():
+                pdf_field.required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        token = (self.data.get("pdf_upload_token") or "").strip()
+        pdf = cleaned.get("pdf_file")
+        if not self.instance.pk and not pdf and not token:
+            self.add_error("pdf_file", "Chọn file PDF.")
+        return cleaned
 
 
 class PageReviewForm(forms.ModelForm):

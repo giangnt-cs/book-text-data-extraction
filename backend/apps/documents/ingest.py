@@ -64,9 +64,6 @@ def resolve_duplicate_book(title: str, existing: list[str]) -> Book | None:
     candidates = similar_titles(title, existing)
     if not candidates:
         return None
-    top_ratio, top_title = candidates[0]
-    if top_ratio >= 0.92:
-        return find_book_by_title(top_title)
     try:
         confirmed = confirm_title_duplicate(
             title=title,

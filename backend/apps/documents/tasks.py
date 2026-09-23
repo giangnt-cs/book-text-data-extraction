@@ -737,24 +737,31 @@ def clean_single_page(self, *, page_id: str, batch_id: str) -> Dict[str, Any]:
         logger.warning("Trang %s đang được làm sạch — bỏ qua", page_id)
         return {"page_id": page_id, "skipped": True, "reason": "already_processing"}
 
+    if not acquire_cleaning_lock(batch_id, task_id):
+        release_cleaning_lock(page_lock_id, task_id)
+        logger.warning("Batch làm sạch %s đang chạy — bỏ qua trang %s", batch_id, page_id)
+        return {"page_id": page_id, "skipped": True, "reason": "batch_processing"}
+
     t0 = time.perf_counter()
     was_done = batch.status == CleaningBatchStatus.DONE
+    original_error = batch.error_message or ""
     try:
-        if not was_done:
+        check_cleaning_cancelled(batch_id)
+        BookCleaningBatch.objects.filter(pk=batch.pk).update(
+            status=CleaningBatchStatus.PROCESSING,
+            error_message="" if not was_done else original_error,
+            updated_at=timezone.now(),
+        )
+
+        check_cleaning_cancelled(batch_id)
+        ok, chars, error = _clean_and_store_page(batch=batch, page=page)
+        check_cleaning_cancelled(batch_id)
+        if error == "empty":
             BookCleaningBatch.objects.filter(pk=batch.pk).update(
-                status=CleaningBatchStatus.PROCESSING,
-                error_message="",
+                status=CleaningBatchStatus.DONE if was_done else CleaningBatchStatus.FAILED,
+                error_message=original_error if was_done else "Trang chưa có nội dung OCR.",
                 updated_at=timezone.now(),
             )
-
-        ok, chars, error = _clean_and_store_page(batch=batch, page=page)
-        if error == "empty":
-            if not was_done:
-                BookCleaningBatch.objects.filter(pk=batch.pk).update(
-                    status=CleaningBatchStatus.FAILED,
-                    error_message="Trang chưa có nội dung OCR.",
-                    updated_at=timezone.now(),
-                )
             return {"page_id": page_id, "failed": True, "error": "empty"}
 
         status = CleaningBatchStatus.DONE
@@ -763,7 +770,7 @@ def clean_single_page(self, *, page_id: str, batch_id: str) -> Dict[str, Any]:
             error_message = f"Trang {page.page_number}: {error} — đã giữ OCR gốc."
         BookCleaningBatch.objects.filter(pk=batch.pk).update(
             status=status,
-            error_message=error_message if not was_done else (batch.error_message or error_message),
+            error_message=error_message if not was_done else (original_error or error_message),
             updated_at=timezone.now(),
         )
         book.refresh_cleaning_coverage()
@@ -784,17 +791,30 @@ def clean_single_page(self, *, page_id: str, batch_id: str) -> Dict[str, Any]:
             "duration_s": round(time.perf_counter() - t0, 2),
             "error": error,
         }
+    except TaskCancelled as e:
+        BookCleaningBatch.objects.filter(pk=batch.pk).update(
+            status=CleaningBatchStatus.DONE if was_done else CleaningBatchStatus.FAILED,
+            error_message=original_error if was_done else str(e),
+            updated_at=timezone.now(),
+        )
+        logger.info(
+            "Làm sạch trang %s sách %s đã hủy",
+            page.page_number,
+            book.title,
+            extra={"book_id": str(book.id), "page_id": page_id, "batch_id": batch_id},
+        )
+        return {"page_id": page_id, "cancelled": True, "error": str(e)}
     except Exception as e:
-        if not was_done:
-            BookCleaningBatch.objects.filter(pk=batch.pk).update(
-                status=CleaningBatchStatus.FAILED,
-                error_message=f"{type(e).__name__}: {e}",
-                updated_at=timezone.now(),
-            )
+        BookCleaningBatch.objects.filter(pk=batch.pk).update(
+            status=CleaningBatchStatus.DONE if was_done else CleaningBatchStatus.FAILED,
+            error_message=original_error if was_done else f"{type(e).__name__}: {e}",
+            updated_at=timezone.now(),
+        )
         raise
     finally:
         release_cleaning_lock(page_lock_id, task_id)
-        clear_cleaning_cancel(page_lock_id)
+        release_cleaning_lock(batch_id, task_id)
+        clear_cleaning_cancel(batch_id)
 
 
 @shared_task(bind=True, name="apps.documents.tasks.clean_book_text")

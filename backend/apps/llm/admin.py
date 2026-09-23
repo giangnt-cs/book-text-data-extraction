@@ -15,6 +15,8 @@ from .forms import (
     BookDedupeConfigForm,
     BookIngestConfigForm,
     ChunkingConfigForm,
+    ChunkResizeConfigForm,
+    ImageDescribeConfigForm,
     LLMProviderForm,
     OCRProviderForm,
     TextCleaningConfigForm,
@@ -26,6 +28,9 @@ from .models import (
     BookDedupeConfig,
     BookIngestConfig,
     ChunkingConfig,
+    ChunkingMethod,
+    ChunkResizeConfig,
+    ImageDescribeConfig,
     LLMBackend,
     LLMProvider,
     OCRBackend,
@@ -253,11 +258,12 @@ class OCRProviderAdmin(ModelAdmin):
                 api_key = api_key or llm.resolve_api_key() or ""
                 base_url = base_url or (llm.base_url or "")
 
-        if not api_key and object_id:
+        if object_id:
             provider = OCRProvider.objects.select_related("llm").filter(pk=object_id).first()
             if provider:
-                api_key, stored_url, _model = provider.resolve_llm_credentials()
-                api_key = api_key or ""
+                backend = backend or provider.backend
+                stored_key, stored_url, _model = provider.resolve_llm_credentials()
+                api_key = api_key or stored_key or ""
                 base_url = base_url or stored_url
 
         try:
@@ -406,7 +412,7 @@ class _LLMFeatureAdmin(ModelAdmin):
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         extra_context = extra_context or {}
-        extra_context["fetch_models_url"] = reverse("admin:llm_llmprovider_fetch_models")
+        extra_context.setdefault("fetch_models_url", reverse("admin:llm_llmprovider_fetch_models"))
         return super().changeform_view(request, object_id, form_url, extra_context)
 
 
@@ -432,19 +438,88 @@ class TextCleaningConfigAdmin(_LLMFeatureAdmin):
 @admin.register(ChunkingConfig)
 class ChunkingConfigAdmin(_LLMFeatureAdmin):
     form = ChunkingConfigForm
-    list_display = ("__str__", "provider", "model", "window_pages", "overlap_pages", "updated_at")
+    change_form_template = "admin/llm/chunking_config_form.html"
+    list_display = ("__str__", "method", "runtime_source", "runtime_model", "updated_at")
+    autocomplete_fields = ("provider",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("provider")
+
+    @admin.display(description="Nguồn")
+    def runtime_source(self, obj):
+        if (obj.method or ChunkingMethod.LLM) == ChunkingMethod.POINCARE:
+            backend = obj.get_embed_backend_display()
+            host = (obj.embed_host or "").strip()
+            return f"{backend} · {host}" if host else backend
+        if obj.provider_id and obj.provider:
+            return obj.provider
+        return "LLM mặc định"
+
+    @admin.display(description="Model")
+    def runtime_model(self, obj):
+        if (obj.method or ChunkingMethod.LLM) == ChunkingMethod.POINCARE:
+            return (obj.embed_model or "").strip() or "—"
+        return (obj.model or "").strip() or "—"
+
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": ("method",),
+                "description": "Chọn một phương pháp. Phân đoạn hàng loạt dùng cấu hình đang lưu.",
+            },
+        ),
+        (
+            "LLM (cửa sổ trang)",
+            {
+                "classes": ("chunking-llm",),
+                "fields": ("provider", "model", "window_pages", "overlap_pages", "prompt", "stitch_prompt"),
+                "description": (
+                    "Nối đoạn dang dở qua ranh giới trang, rồi gửi N trang. "
+                    "LLM chỉ trả JSON {\"break_after\": [2, 5]}."
+                ),
+            },
+        ),
+        (
+            "Regex đề mục + Poincaré",
+            {
+                "classes": ("chunking-poincare",),
+                "fields": (
+                    "embed_backend",
+                    "embed_host",
+                    "embed_model",
+                    "embed_api_key",
+                    "embed_batch_size",
+                    "poincare_window",
+                    "poincare_step",
+                    "poincare_c",
+                    "smooth_s",
+                    "smooth_n",
+                    "min_tokens",
+                    "max_tokens",
+                ),
+                "description": (
+                    "Cắt đề mục bằng regex, gom đoạn ngắn, rồi embed cửa sổ và chiếu Poincaré "
+                    "để chọn điểm cắt theo Depth Score + Otsu. Không gửi ảnh canvas."
+                ),
+            },
+        ),
+    )
+
+
+@admin.register(ChunkResizeConfig)
+class ChunkResizeConfigAdmin(_LLMFeatureAdmin):
+    form = ChunkResizeConfigForm
+    list_display = ("__str__", "provider", "model", "max_tokens", "updated_at")
     autocomplete_fields = ("provider",)
     fieldsets = (
         (
             None,
             {
-                "fields": ("provider", "model", "window_pages", "overlap_pages", "prompt", "stitch_prompt"),
+                "fields": ("provider", "model", "max_tokens", "prompt"),
                 "description": (
-                    "Trước khi phân đoạn: nối đoạn dang dở qua ranh giới trang "
-                    "(mỗi cặp hỏi LLM, chỉ trả true/false). "
-                    "Sau đó gửi N trang đã đánh số đoạn. LLM chỉ trả JSON "
-                    '{"break_after": [2, 5]} — chương trình tự chèn </break> và <!-- Trang P -->, '
-                    "không viết lại trang. Prompt chỉnh được trên màn xem Markdown của Văn bản nguồn (Dataset)."
+                    "Tách lại các phân đoạn vượt hạn token. "
+                    "Prompt mặc định lấy từ cấu hình Phân đoạn; có thể chỉnh riêng."
                 ),
             },
         ),
@@ -486,6 +561,32 @@ class BookDedupeConfigAdmin(_LLMFeatureAdmin):
             },
         ),
     )
+
+
+@admin.register(ImageDescribeConfig)
+class ImageDescribeConfigAdmin(_LLMFeatureAdmin):
+    form = ImageDescribeConfigForm
+    list_display = ("__str__", "provider", "model", "min_description_chars", "updated_at")
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": ("provider", "model", "min_description_chars", "prompt", "page_prompt"),
+                "description": (
+                    "Chọn VLM đã khai báo ở «Công cụ OCR». "
+                    "Lần 1: chỉ gửi chữ OCR trên hình (không gửi ảnh). "
+                    "Nếu mô tả quá ngắn hoặc VLM trả [KHÔNG_ĐỦ_THÔNG_TIN], lần 2 gửi ảnh crop kèm nội dung trang sách "
+                    "(hình minh họa rút trích từ sách y học cổ truyền Việt Nam). "
+                    "Nếu là dược liệu/thực vật, mô tả cần có đủ tên gọi và tên khoa học."
+                ),
+            },
+        ),
+    )
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["fetch_models_url"] = reverse("admin:llm_ocrprovider_fetch_models")
+        return super().changeform_view(request, object_id, form_url, extra_context)
 
 
 @admin.register(BookClassifyConfig)

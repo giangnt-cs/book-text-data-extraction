@@ -406,10 +406,27 @@ class BookClassifyConfig(models.Model):
         return "Cấu hình phân loại sách"
 
 
+class ChunkingMethod(models.TextChoices):
+    LLM = "llm", "LLM (cửa sổ trang)"
+    POINCARE = "poincare", "Regex đề mục + Poincaré"
+
+
+class EmbedBackend(models.TextChoices):
+    OLLAMA = "ollama", "Ollama"
+    VLLM = "vllm", "vLLM / OpenAI-compatible"
+
+
 class ChunkingConfig(models.Model):
-    """Chọn LLM + model + prompt + cửa sổ trang cho phân đoạn (LLM trả chỉ số đoạn)."""
+    """Chọn phương pháp phân đoạn: LLM cửa sổ trang, hoặc regex đề mục + Poincaré."""
 
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    method = models.CharField(
+        max_length=16,
+        choices=ChunkingMethod.choices,
+        default=ChunkingMethod.LLM,
+        verbose_name="Phương pháp",
+        help_text="LLM: gửi cửa sổ trang cho LLM. Poincaré: cắt đề mục regex rồi embed + Depth Score.",
+    )
     provider = models.ForeignKey(
         LLMProvider,
         null=True,
@@ -417,7 +434,7 @@ class ChunkingConfig(models.Model):
         on_delete=models.SET_NULL,
         related_name="chunking_configs",
         verbose_name="LLM",
-        help_text="Chọn LLM đã khai báo. Để trống = LLM mặc định.",
+        help_text="Chỉ dùng khi phương pháp là LLM. Để trống = LLM mặc định.",
     )
     model = models.CharField(
         max_length=200,
@@ -444,6 +461,73 @@ class ChunkingConfig(models.Model):
         verbose_name="Prompt nối trang",
         help_text="LLM chỉ trả true hoặc false — có nối đoạn cuối trang trước với đoạn đầu trang sau.",
     )
+    embed_backend = models.CharField(
+        max_length=16,
+        choices=EmbedBackend.choices,
+        default=EmbedBackend.OLLAMA,
+        verbose_name="Nguồn embedding",
+        help_text="Chỉ dùng khi phương pháp là Poincaré.",
+    )
+    embed_host = models.CharField(
+        max_length=400,
+        blank=True,
+        default="http://ai1.rnd.lcs.com.vn",
+        verbose_name="Host embedding",
+        help_text="Ollama: http://host:11434. vLLM: http://host:port/v1.",
+    )
+    embed_model = models.CharField(
+        max_length=200,
+        blank=True,
+        default="jina-embeddings-v4-text-retrieval-F16:latest",
+        verbose_name="Model embedding",
+    )
+    embed_api_key = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="API key embedding",
+        help_text="Tùy chọn — vLLM/OpenAI-compatible.",
+    )
+    embed_batch_size = models.PositiveIntegerField(
+        default=32,
+        verbose_name="Batch embedding",
+        help_text="Số cửa sổ gửi embedding mỗi lần.",
+    )
+    poincare_window = models.PositiveIntegerField(
+        default=20,
+        verbose_name="Cửa sổ token",
+        help_text="Độ dài cửa sổ trượt (token regex).",
+    )
+    poincare_step = models.PositiveIntegerField(
+        default=3,
+        verbose_name="Bước trượt",
+        help_text="Số token dịch mỗi bước.",
+    )
+    poincare_c = models.FloatField(
+        default=1.0,
+        verbose_name="Độ cong c",
+        help_text="Độ cong đĩa Poincaré (phải > 0). Mặc định 1.",
+    )
+    smooth_s = models.PositiveIntegerField(
+        default=2,
+        verbose_name="Làm mịn s",
+        help_text="Khoảng trống lân cận (số chẵn). Mặc định 2.",
+    )
+    smooth_n = models.PositiveIntegerField(
+        default=2,
+        verbose_name="Làm mịn n",
+        help_text="Số lần lặp làm mịn. Mặc định 2.",
+    )
+    min_tokens = models.PositiveIntegerField(
+        default=200,
+        verbose_name="Gom đến khi > token",
+        help_text="Gom các phần đề mục ngắn đến khi số token tiktoken vượt ngưỡng này.",
+    )
+    max_tokens = models.PositiveIntegerField(
+        default=200,
+        verbose_name="Cắt Poincaré khi > token",
+        help_text="Chỉ chạy Poincaré/Depth Score với đoạn đã gom dài hơn số này.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -457,16 +541,71 @@ class ChunkingConfig(models.Model):
         from django.core.exceptions import ValidationError
 
         super().clean()
-        window = int(self.window_pages or 0)
-        overlap = int(self.overlap_pages or 0)
-        if window < 1 or window > 20:
-            raise ValidationError({"window_pages": "Số trang mỗi lần gửi phải từ 1 đến 20."})
-        if overlap < 0:
-            raise ValidationError({"overlap_pages": "Số trang trùng không được âm."})
-        if overlap >= window:
-            raise ValidationError(
-                {"overlap_pages": "Số trang trùng phải nhỏ hơn số trang gửi mỗi lần."}
-            )
+        if self.method == ChunkingMethod.LLM:
+            window = int(self.window_pages or 0)
+            overlap = int(self.overlap_pages or 0)
+            if window < 1 or window > 20:
+                raise ValidationError({"window_pages": "Số trang mỗi lần gửi phải từ 1 đến 20."})
+            if overlap < 0:
+                raise ValidationError({"overlap_pages": "Số trang trùng không được âm."})
+            if overlap >= window:
+                raise ValidationError(
+                    {"overlap_pages": "Số trang trùng phải nhỏ hơn số trang gửi mỗi lần."}
+                )
+            return
+        if int(self.poincare_window or 0) < 1:
+            raise ValidationError({"poincare_window": "Cửa sổ token phải >= 1."})
+        if int(self.poincare_step or 0) < 1:
+            raise ValidationError({"poincare_step": "Bước trượt phải >= 1."})
+        if float(self.poincare_c or 0) <= 0:
+            raise ValidationError({"poincare_c": "Độ cong c phải > 0."})
+        if int(self.smooth_s or 0) % 2 != 0:
+            raise ValidationError({"smooth_s": "Làm mịn s phải là số chẵn."})
+        if not (self.embed_host or "").strip() or not (self.embed_model or "").strip():
+            raise ValidationError("Poincaré cần host và model embedding.")
+
+
+class ChunkResizeConfig(models.Model):
+    """Tách lại các phân đoạn vượt hạn token."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    provider = models.ForeignKey(
+        LLMProvider,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="chunk_resize_configs",
+        verbose_name="LLM",
+        help_text="Chọn LLM đã khai báo. Để trống = LLM mặc định.",
+    )
+    model = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Model",
+        help_text="Để trống = model mặc định của LLM.",
+    )
+    max_tokens = models.PositiveIntegerField(
+        default=5000,
+        verbose_name="Giới hạn token mỗi đoạn",
+        help_text="Đoạn dài hơn mức này sẽ được gọi phân đoạn lại.",
+    )
+    prompt = models.TextField(verbose_name="Prompt giảm kích thước")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Giảm kích thước phân đoạn"
+        verbose_name_plural = "6b. Giảm kích thước phân đoạn"
+
+    def __str__(self) -> str:
+        return "Cấu hình giảm kích thước phân đoạn"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        limit = int(self.max_tokens or 0)
+        if limit < 100:
+            raise ValidationError({"max_tokens": "Giới hạn token phải từ 100 trở lên."})
 
 
 class BookIngestConfig(models.Model):
@@ -532,3 +671,48 @@ class BookDedupeConfig(models.Model):
 
     def __str__(self) -> str:
         return "Cấu hình kiểm tra sách trùng"
+
+
+class ImageDescribeConfig(models.Model):
+    """VLM mô tả hình minh họa khi rút trích ảnh sách."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    provider = models.ForeignKey(
+        OCRProvider,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="image_describe_configs",
+        verbose_name="VLM",
+        help_text="Chọn công cụ VLM đã khai báo (Gemini / Ollama / vLLM / ChatGPT). Để trống = VLM đang kích hoạt.",
+    )
+    model = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Model",
+        help_text="Để trống = model mặc định của VLM đã chọn.",
+    )
+    prompt = models.TextField(
+        verbose_name="Prompt mô tả từ chữ trên hình",
+        help_text="Lần 1: chỉ gửi chữ đọc được trên hình (không gửi ảnh).",
+    )
+    page_prompt = models.TextField(
+        verbose_name="Prompt mô tả kèm nội dung trang",
+        help_text=(
+            "Lần 2 khi lần 1 không đủ thông tin: gửi ảnh crop, chữ trên hình và nội dung trang sách. "
+            "Prompt cần nói rõ đây là hình minh họa rút trích từ sách y học cổ truyền Việt Nam."
+        ),
+    )
+    min_description_chars = models.PositiveIntegerField(
+        default=40,
+        verbose_name="Độ dài tối thiểu của mô tả",
+        help_text="Mô tả ngắn hơn mức này (hoặc VLM trả [KHÔNG_ĐỦ_THÔNG_TIN]) sẽ gọi lần 2 với nội dung trang.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Mô tả hình minh họa"
+        verbose_name_plural = "6c. Mô tả hình minh họa"
+
+    def __str__(self) -> str:
+        return "Cấu hình mô tả hình minh họa"

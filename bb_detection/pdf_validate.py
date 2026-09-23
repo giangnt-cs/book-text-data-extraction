@@ -18,20 +18,24 @@ def validate_pdf(
     Kiểm tra PDF trước khi render/detect.
     Trả (True, "") nếu OK; (False, thông báo tiếng Việt) nếu lỗi.
     """
+    path = Path(pdf_path) if pdf_path else None
     data = pdf_bytes
     if data is None:
-        if not pdf_path:
+        if path is None:
             return False, "Không có dữ liệu PDF để kiểm tra."
-        path = Path(pdf_path)
         if not path.is_file():
             return False, "Không tìm thấy file PDF."
-        data = path.read_bytes()
+        try:
+            with path.open("rb") as fh:
+                head = fh.read(2048)
+        except OSError as exc:
+            return False, f"Không đọc được file PDF ({exc})."
+    else:
+        if not data:
+            return False, "File PDF trống."
+        head = data[:2048]
 
-    if not data:
-        return False, "File PDF trống."
-
-    head = data[:2048].lstrip()
-    if not head.startswith(b"%PDF"):
+    if not head.lstrip().startswith(b"%PDF"):
         return (
             False,
             "File không phải PDF hợp lệ (thiếu header %PDF). "
@@ -41,7 +45,7 @@ def validate_pdf(
     try:
         import fitz
 
-        doc = fitz.open(stream=data, filetype="pdf")
+        doc = fitz.open(str(path)) if data is None else fitz.open(stream=data, filetype="pdf")
         try:
             if doc.page_count < 1:
                 return False, "PDF không có trang nào."

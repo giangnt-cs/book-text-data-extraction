@@ -409,3 +409,68 @@ Văn bản OCR cần làm sạch:
 """.strip()
 
 
+def default_image_describe_prompt() -> str:
+    return """
+Dưới đây là chữ đọc được trên một hình minh họa rút trích từ sách y học cổ truyền Việt Nam.
+Không gửi kèm ảnh — chỉ dựa vào chữ trên hình để mô tả.
+
+Nhiệm vụ: viết mô tả ngắn, rõ, bằng tiếng Việt về nội dung hình.
+
+Nếu hình minh họa dược liệu / thực vật / vị thuốc:
+- Lấy đủ tên gọi (tên Việt, tên Nôm, tên dân gian, tên Trung Quốc nếu có trong chữ trên hình).
+- Lấy tên khoa học (Latin) nếu có trong chữ trên hình hoặc suy ra chắc chắn từ chữ đó.
+- Không bịa tên khoa học khi không có căn cứ.
+
+Quy tắc:
+- Không chép lại nguyên văn toàn bộ chữ trên hình (chữ đã có mục riêng); chỉ dùng để nhận diện và mô tả.
+- Nếu chữ trên hình không đủ để mô tả, trả đúng một dòng: [KHÔNG_ĐỦ_THÔNG_TIN]
+- Không markdown heading, không lời dẫn kiểu "Đây là ảnh…".
+""".strip()
+
+
+def default_image_describe_page_prompt() -> str:
+    return """
+Đây là hình minh họa rút trích từ sách y học cổ truyền Việt Nam, minh họa cho nội dung trang sách được gửi kèm.
+Hãy mô tả hình sao cho phù hợp với ngữ cảnh trang.
+
+Nếu hình minh họa dược liệu / thực vật / vị thuốc:
+- Lấy đủ tên gọi (tên Việt, tên Nôm, tên dân gian, tên Trung Quốc nếu có).
+- Lấy tên khoa học (Latin) nếu có trong chữ trên hình hoặc trong nội dung trang, hoặc suy ra chắc chắn từ đó.
+- Không bịa tên khoa học khi không có căn cứ.
+
+Quy tắc:
+- Mô tả bằng tiếng Việt, ngắn và rõ.
+- Kết hợp chữ trên hình (nếu có) và nội dung trang sách.
+- Không bịa chi tiết không suy ra được từ chữ trên hình hoặc nội dung trang.
+- Không markdown heading, không lời dẫn kiểu "Đây là ảnh…".
+- Chỉ trả về đoạn mô tả hình.
+""".strip()
+
+
+def build_image_describe_prompt(*, template: str, ocr_text: str) -> str:
+    ocr = (ocr_text or "").strip() or "(không có chữ)"
+    return f"""{template.strip()}
+
+---
+Chữ đọc được trên hình:
+
+{ocr}
+""".strip()
+
+
+def build_image_describe_page_prompt(*, template: str, ocr_text: str, page_text: str) -> str:
+    ocr = (ocr_text or "").strip() or "(không có chữ)"
+    page = (page_text or "").strip() or "(không có nội dung trang)"
+    return f"""{template.strip()}
+
+---
+Chữ đọc được trên hình:
+
+{ocr}
+
+Nội dung trang sách (hình này là minh họa cho nội dung sau):
+
+{page}
+""".strip()
+
+

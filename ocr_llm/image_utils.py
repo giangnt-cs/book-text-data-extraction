@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image
-
 
 def crop_region(image_bytes: bytes, x: float, y: float, width: float, height: float) -> bytes:
     """Cắt vùng bbox từ ảnh trang (tọa độ pixel)."""
+    from PIL import Image
+
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     left = max(0, int(x))
     top = max(0, int(y))

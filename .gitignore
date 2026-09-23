@@ -25,6 +25,8 @@ samples/*.pdf
 
 # Runtime / media
 media/
+inbox/*
+!inbox/.gitkeep
 *.log
 
 # IDE / OS

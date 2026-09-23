@@ -1,17 +1,270 @@
 <div class="md-clean-panel" style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:1rem 1.25rem;margin:0 0 1rem;">
   <h3 style="margin:0 0 0.5rem;font-size:1rem;font-weight:700;">Upload hàng loạt</h3>
   <p style="margin:0 0 0.75rem;font-size:0.8125rem;color:#64748b;">
-    Chọn nhiều PDF để đưa vào danh sách tạm.
-    Sau đó chọn các mục và chạy «Tạo sách từ danh sách tạm» — hệ thống OCR trang đầu, LLM đặt tên và lọc trùng với sách đã có.
+    Đưa PDF vào danh sách tạm, rồi chọn các mục và chạy «Tạo sách từ danh sách tạm».
     File trùng sẽ bị xóa để tiết kiệm bộ nhớ.
     Đang chờ: <strong>{{ pending_count }}</strong>
     {% if processing_count %} · đang xử lý: <strong>{{ processing_count }}</strong>{% endif %}
   </p>
-  <form method="post" action="{{ upload_url }}" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
-    {% csrf_token %}
-    <input type="file" name="pdfs" accept=".pdf,application/pdf" multiple required>
-    <button type="submit" style="border:none;border-radius:6px;padding:0.45rem 0.9rem;background:#7c3aed;color:#fff;font-weight:600;font-size:0.8125rem;cursor:pointer;">
-      Thêm vào danh sách tạm
-    </button>
-  </form>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));gap:1rem;">
+    <div>
+      <h4 style="margin:0 0 0.4rem;font-size:0.875rem;font-weight:650;">Từ máy của bạn</h4>
+      <p style="margin:0 0 0.6rem;font-size:0.75rem;color:#64748b;">
+        Chọn folder hoặc nhiều PDF trên máy. File OneDrive cần tải về trước khi upload.
+      </p>
+      <form
+        id="staged-book-upload-form"
+        method="post"
+        action="{{ upload_url }}"
+        enctype="multipart/form-data"
+        data-chunk-url="{{ upload_chunk_url }}"
+        data-finish-url="{{ upload_finish_url }}"
+        style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;"
+      >
+        {% csrf_token %}
+        <input id="staged-book-files" type="file" name="pdfs" accept=".pdf,application/pdf" multiple required>
+        <button id="staged-book-submit" type="submit" style="border:none;border-radius:6px;padding:0.45rem 0.9rem;background:#7c3aed;color:#fff;font-weight:600;font-size:0.8125rem;cursor:pointer;">
+          Thêm vào danh sách tạm
+        </button>
+        <span id="staged-book-upload-status" style="font-size:0.8125rem;color:#64748b;"></span>
+      </form>
+    </div>
+    <div>
+      <h4 style="margin:0 0 0.4rem;font-size:0.875rem;font-weight:650;">Từ folder trên server</h4>
+      {% if inbox_enabled %}
+      <p style="margin:0 0 0.6rem;font-size:0.75rem;color:#64748b;">
+        {{ inbox_pdfs|length }} PDF tại <code>{{ inbox_path }}</code>.
+        File được sao chép vào danh sách tạm, không xóa bản trên server.
+        {% if inbox_truncated %} Đang hiện tối đa 2000 file.{% endif %}
+      </p>
+      {% if inbox_pdfs %}
+      <form method="post" action="{{ inbox_import_url }}" id="staged-book-inbox-form">
+        {% csrf_token %}
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.5rem;">
+          <label style="font-size:0.8125rem;display:inline-flex;align-items:center;gap:0.35rem;">
+            <input type="checkbox" id="staged-book-inbox-all">
+            Chọn tất cả
+          </label>
+          <span id="staged-book-inbox-count" style="font-size:0.75rem;color:#64748b;"></span>
+          <button type="submit" style="border:none;border-radius:6px;padding:0.45rem 0.9rem;background:#0f766e;color:#fff;font-weight:600;font-size:0.8125rem;cursor:pointer;">
+            Thêm file đã chọn
+          </button>
+        </div>
+        <div style="max-height:14rem;overflow:auto;border:1px solid #e2e8f0;border-radius:6px;background:#fff;padding:0.35rem 0.5rem;">
+          {% for item in inbox_pdfs %}
+          <label style="display:flex;gap:0.5rem;align-items:baseline;font-size:0.8125rem;padding:0.15rem 0;">
+            <input type="checkbox" name="inbox_pdfs" value="{{ item.rel }}" class="staged-book-inbox-item">
+            <span style="word-break:break-all;">{{ item.rel }}</span>
+            <span style="color:#94a3b8;white-space:nowrap;">{{ item.size_label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </form>
+      {% else %}
+      <p style="margin:0;font-size:0.8125rem;color:#b45309;">Folder đã gắn nhưng chưa có file .pdf.</p>
+      {% endif %}
+      {% else %}
+      <p style="margin:0;font-size:0.8125rem;color:#64748b;">
+        Chưa thấy folder trên server. Đặt <code>STAGED_PDF_INBOX_HOST</code> trong <code>.env</code>
+        (đường dẫn folder PDF trên máy chủ), rồi <code>docker compose up -d web</code>.
+      </p>
+      {% endif %}
+    </div>
+  </div>
 </div>
+<script>
+(function () {
+  const form = document.getElementById("staged-book-upload-form");
+  if (!form) return;
+  const chunkUrl = form.getAttribute("data-chunk-url");
+  const finishUrl = form.getAttribute("data-finish-url");
+  const input = document.getElementById("staged-book-files");
+  const button = document.getElementById("staged-book-submit");
+  const status = document.getElementById("staged-book-upload-status");
+  const csrf = form.querySelector("[name=csrfmiddlewaretoken]");
+  const CHUNK = 512 * 1024;
+  if (!chunkUrl || !finishUrl || !input || !csrf) return;
+
+  function setStatus(text, isError) {
+    if (!status) return;
+    status.textContent = text || "";
+    status.style.color = isError ? "#b91c1c" : "#64748b";
+  }
+
+  function explainUploadError(err, fileName) {
+    const raw = (err && (err.message || err.name)) ? String(err.message || err.name) : String(err || "");
+    const name = fileName ? "«" + fileName + "»" : "file";
+    const lower = raw.toLowerCase();
+    const cloudLike =
+      (err && (err.name === "NotReadableError" || err.name === "NotFoundError" || err.name === "NetworkError")) ||
+      lower.indexOf("failed to fetch") !== -1 ||
+      lower.indexOf("networkerror") !== -1 ||
+      lower.indexOf("load failed") !== -1 ||
+      lower.indexOf("notreadable") !== -1 ||
+      lower.indexOf("not found") !== -1 ||
+      raw === "empty";
+    if (lower.indexOf("timed") !== -1 || lower.indexOf("timeout") !== -1) {
+      return (
+        "Mất kết nối khi tải " + name + " (timeout). " +
+        "Hãy thử lại; nếu file ở OneDrive thì tải về máy trước."
+      );
+    }
+    if (cloudLike) {
+      return (
+        "Không đọc được " + name + ". File có thể đang ở OneDrive (hoặc ổ đám mây) và chưa tải về máy. " +
+        "Hãy bật OneDrive, chuột phải file → Always keep on this device, đợi biểu tượng mây biến mất rồi thử lại."
+      );
+    }
+    if (lower.indexOf("http ") === 0 || lower.indexOf("failed") !== -1) {
+      return "Không gửi được " + name + " lên máy chủ. " + (raw && raw !== "Failed to fetch" ? raw : "Kiểm tra mạng rồi thử lại.");
+    }
+    return raw || ("Không tải được " + name + ".");
+  }
+
+  async function assertFileReadable(file) {
+    if (!file || !(file.size > 0)) {
+      const err = new Error("empty");
+      err.name = "NotReadableError";
+      throw err;
+    }
+    try {
+      const probe = file.slice(0, Math.min(64, file.size));
+      const buf = await (probe.arrayBuffer ? probe.arrayBuffer() : new Response(probe).arrayBuffer());
+      if (!buf || buf.byteLength <= 0) {
+        const err = new Error("empty");
+        err.name = "NotReadableError";
+        throw err;
+      }
+    } catch (err) {
+      if (err && err.name === "NotReadableError") throw err;
+      const wrapped = err instanceof Error ? err : new Error(String(err || "empty"));
+      wrapped.name = wrapped.name || "NotReadableError";
+      throw wrapped;
+    }
+  }
+
+  async function postForm(url, data) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        body: data,
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": csrf.value },
+      });
+    } catch (err) {
+      const wrapped = err instanceof Error ? err : new Error(String(err || "Failed to fetch"));
+      if (!wrapped.name || wrapped.name === "Error") wrapped.name = "NetworkError";
+      throw wrapped;
+    }
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (err) {
+      payload = {};
+    }
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || ("HTTP " + response.status));
+    }
+    return payload;
+  }
+
+  async function uploadOne(file, fileIndex, fileCount) {
+    await assertFileReadable(file);
+    const total = Math.max(1, Math.ceil(file.size / CHUNK));
+    const session = (crypto.randomUUID && crypto.randomUUID()) ||
+      ("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0;
+        const v = c === "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      }));
+    for (let index = 0; index < total; index += 1) {
+      setStatus(
+        "Đang tải «" + file.name + "» (" + (fileIndex + 1) + "/" + fileCount +
+        ", phần " + (index + 1) + "/" + total + ")"
+      );
+      let blob;
+      try {
+        blob = file.slice(index * CHUNK, (index + 1) * CHUNK);
+      } catch (err) {
+        const wrapped = err instanceof Error ? err : new Error(String(err || "empty"));
+        wrapped.name = "NotReadableError";
+        throw wrapped;
+      }
+      const data = new FormData();
+      data.append("csrfmiddlewaretoken", csrf.value);
+      data.append("session", session);
+      data.append("index", String(index));
+      data.append("total", String(total));
+      data.append("filename", file.name);
+      data.append("chunk", new File([blob], "chunk.part", { type: "application/octet-stream" }));
+      await postForm(chunkUrl, data);
+    }
+    const finish = new FormData();
+    finish.append("csrfmiddlewaretoken", csrf.value);
+    finish.append("session", session);
+    finish.append("total", String(total));
+    finish.append("filename", file.name);
+    await postForm(finishUrl, finish);
+  }
+
+  form.addEventListener("submit", function (event) {
+    const files = Array.prototype.slice.call(input.files || []);
+    if (!files.length) return;
+    event.preventDefault();
+    button.disabled = true;
+    (async function () {
+      let currentName = "";
+      try {
+        for (let i = 0; i < files.length; i += 1) {
+          const file = files[i];
+          currentName = file.name || "";
+          if (!String(file.name || "").toLowerCase().endsWith(".pdf")) {
+            throw new Error("Bỏ qua «" + file.name + "» — không phải PDF.");
+          }
+          await uploadOne(file, i, files.length);
+        }
+        setStatus("Xong. Đang tải lại trang…");
+        window.location.reload();
+      } catch (err) {
+        button.disabled = false;
+        const message = explainUploadError(err, currentName);
+        setStatus(message, true);
+        window.alert(message);
+      }
+    })();
+  });
+
+  const inboxForm = document.getElementById("staged-book-inbox-form");
+  if (inboxForm) {
+    const all = document.getElementById("staged-book-inbox-all");
+    const items = inboxForm.querySelectorAll(".staged-book-inbox-item");
+    const count = document.getElementById("staged-book-inbox-count");
+    function refreshInboxCount() {
+      if (!count) return;
+      let n = 0;
+      items.forEach(function (box) { if (box.checked) n += 1; });
+      count.textContent = n ? ("Đã chọn " + n) : "";
+      if (all) all.checked = n > 0 && n === items.length;
+    }
+    if (all) {
+      all.addEventListener("change", function () {
+        items.forEach(function (box) { box.checked = all.checked; });
+        refreshInboxCount();
+      });
+    }
+    items.forEach(function (box) {
+      box.addEventListener("change", refreshInboxCount);
+    });
+    inboxForm.addEventListener("submit", function (event) {
+      let n = 0;
+      items.forEach(function (box) { if (box.checked) n += 1; });
+      if (!n) {
+        event.preventDefault();
+        window.alert("Chưa chọn PDF trong folder trên server.");
+      }
+    });
+    refreshInboxCount();
+  }
+})();
+</script>

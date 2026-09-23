@@ -189,7 +189,58 @@
       <span class="stats-summary__label">Số văn bản đã phân đoạn</span>
       <span class="stats-summary__value">{{ stats.chunked_count }}</span>
     </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Tổng số phân đoạn</span>
+      <span class="stats-summary__value">{{ stats.chunk_count_display }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Tổng số token</span>
+      <span class="stats-summary__value">{{ stats.token_total_display }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Token trung bình / đoạn</span>
+      <span class="stats-summary__value">{{ stats.token_avg_display }}</span>
+    </div>
+    <div class="stats-summary__card">
+      <span class="stats-summary__label">Token trung vị / đoạn</span>
+      <span class="stats-summary__value">{{ stats.token_median_display }}</span>
+    </div>
   </div>
+
+  {% if stats.token_bins %}
+  <section class="stats-group" id="group-token-bins">
+    <div class="stats-group__head">
+      <h2 class="stats-group__title">
+        Phân đoạn theo số token
+        <span class="stats-group__kind">Dải {{ stats.token_bin_size }} token</span>
+      </h2>
+      <div class="stats-group__meta">
+        Bấm cột hoặc dải để mở danh sách văn bản có phân đoạn trong khoảng đó.
+      </div>
+    </div>
+    <div class="stats-chart-wrap">
+      <canvas id="chart-token-bins" aria-label="Biểu đồ phân đoạn theo số token"></canvas>
+    </div>
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Dải token</th>
+          <th class="num">Số phân đoạn</th>
+          <th class="num">Tỷ lệ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bar in stats.token_bins %}
+        <tr>
+          <td><a href="{{ bar.url }}">{{ bar.label }}</a></td>
+          <td class="num">{{ bar.count_display }}</td>
+          <td class="num">{{ bar.pct }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
 
   {% for group in stats.groups %}
   <section class="stats-group" id="group-{{ group.slug }}">
@@ -233,9 +284,11 @@
 </div>
 
 {{ chart_payload|json_script:"classification-chart-data" }}
+{{ token_chart_payload|json_script:"token-chart-data" }}
 <script>
 (function () {
   const payload = JSON.parse(document.getElementById("classification-chart-data").textContent || "[]");
+  const tokenChart = JSON.parse(document.getElementById("token-chart-data").textContent || "{}");
   const colors = ["#7c3aed", "#0d9488", "#2563eb", "#d97706", "#db2777"];
 
   function isDark() {
@@ -307,6 +360,57 @@
       },
     });
   });
+
+  const tokenCanvas = document.getElementById("chart-token-bins");
+  if (tokenCanvas && window.Chart && tokenChart.labels && tokenChart.labels.length) {
+    const wrap = tokenCanvas.parentElement;
+    if (tokenChart.horizontal) {
+      wrap.style.height = Math.max(280, tokenChart.labels.length * 26 + 24) + "px";
+    }
+    new Chart(tokenCanvas, {
+      type: "bar",
+      data: {
+        labels: tokenChart.labels,
+        datasets: [{
+          label: "Số phân đoạn",
+          data: tokenChart.counts,
+          backgroundColor: "#0d9488",
+          borderRadius: 4,
+          maxBarThickness: tokenChart.horizontal ? 18 : 36,
+        }],
+      },
+      options: {
+        indexAxis: tokenChart.horizontal ? "y" : "x",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => " " + ctx.parsed[tokenChart.horizontal ? "x" : "y"] + " phân đoạn",
+            },
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: { color: tickColor(), precision: 0, maxRotation: 45, minRotation: tokenChart.horizontal ? 0 : 30 },
+            grid: { color: tokenChart.horizontal ? gridColor() : "transparent" },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: tickColor(), precision: 0 },
+            grid: { color: tokenChart.horizontal ? "transparent" : gridColor() },
+          },
+        },
+        onClick: (_evt, elements) => {
+          if (!elements.length) return;
+          const url = tokenChart.urls[elements[0].index];
+          if (url) window.location.href = url;
+        },
+      },
+    });
+  }
 })();
 </script>
 {% endblock %}

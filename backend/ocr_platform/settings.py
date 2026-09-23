@@ -28,6 +28,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 INSTALLED_APPS = [
     "unfold.apps.DefaultAppConfig",
+    "unfold.contrib.filters",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "ocr_platform.request_log.IncomingPostLogMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -88,12 +90,20 @@ TIME_ZONE = "Asia/Ho_Chi_Minh"
 USE_I18N = True
 USE_TZ = True
 
+# Origin public (không slash cuối). Ảnh citation: {PUBLIC_BASE_URL}/rag/images/{image_id}
+PUBLIC_BASE_URL = env.str("PUBLIC_BASE_URL", default="").rstrip("/")
+
 STATIC_URL = "/static/"
 STATIC_ROOT = REPO_ROOT / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = REPO_ROOT / "media"
+# Folder PDF trên server (trong container thường là /app/inbox). Trống = ẩn nhập từ server.
+STAGED_PDF_INBOX = env.str("STAGED_PDF_INBOX", default="")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DATA_UPLOAD_MAX_NUMBER_FILES = 500
+# PDF sách scan thường > 2.5MB: giữ trên đĩa tạm, không nhét cả request vào RAM.
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
@@ -106,7 +116,7 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SECURE_REFERRER_POLICY = "same-origin"
     # Reverse proxy (nginx/traefik) terminate HTTPS phía trước container
-    if env.bool("DJANGO_BEHIND_PROXY", default=False):
+    if env.bool("DJANGO_BEHIND_PROXY", default=True):
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
         USE_X_FORWARDED_HOST = True
 
@@ -151,6 +161,8 @@ CELERY_TASK_ROUTES = {
     "apps.dataset.tasks.classify_source_document": {"queue": "cpu"},
     "apps.dataset.tasks.sync_source_to_ragflow": {"queue": "cpu"},
     "apps.dataset.tasks.update_ragflow_chunk": {"queue": "cpu"},
+    "apps.dataset.tasks.resize_document_chunks": {"queue": "cpu"},
+    "apps.dataset.tasks.resize_selected_chunks": {"queue": "cpu"},
 }
 
 if env.bool("CELERY_FORCE_CPU", default=False):
@@ -183,7 +195,7 @@ UNFOLD = {
                         "link": reverse_lazy("admin:documents_book_duplicate_titles"),
                     },
                     {
-                        "title": "Thống kê sách",
+                        "title": "Thống kê",
                         "icon": "bar_chart",
                         "link": reverse_lazy("admin:documents_book_classification_stats"),
                     },
@@ -195,7 +207,7 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Dataset",
+                "title": "Dataset - Văn bản",
                 "separator": True,
                 "items": [
                     {
@@ -208,10 +220,32 @@ UNFOLD = {
                         "icon": "segment",
                         "link": reverse_lazy("admin:dataset_chunkeddocument_changelist"),
                     },
+                ],
+            },
+            {
+                "title": "Dataset - Hình ảnh",
+                "separator": True,
+                "items": [
                     {
-                        "title": "RAGFlow",
-                        "icon": "cloud_sync",
-                        "link": reverse_lazy("admin:dataset_ragflowconfig_changelist"),
+                        "title": "Phân đoạn",
+                        "icon": "image",
+                        "link": reverse_lazy("admin:dataset_imagechunkeddocument_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "RAGFlow",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Chunk văn bản",
+                        "icon": "article",
+                        "link": reverse_lazy("admin:dataset_ragflowtextconfig_changelist"),
+                    },
+                    {
+                        "title": "Chunk hình",
+                        "icon": "image",
+                        "link": reverse_lazy("admin:dataset_ragflowimageconfig_changelist"),
                     },
                 ],
             },
@@ -254,6 +288,16 @@ UNFOLD = {
                         "title": "Phân đoạn",
                         "icon": "splitscreen",
                         "link": reverse_lazy("admin:llm_chunkingconfig_changelist"),
+                    },
+                    {
+                        "title": "Giảm kích thước phân đoạn",
+                        "icon": "compress",
+                        "link": reverse_lazy("admin:llm_chunkresizeconfig_changelist"),
+                    },
+                    {
+                        "title": "Mô tả hình minh họa",
+                        "icon": "image",
+                        "link": reverse_lazy("admin:llm_imagedescribeconfig_changelist"),
                     },
                     {
                         "title": "Tạo sách từ upload",

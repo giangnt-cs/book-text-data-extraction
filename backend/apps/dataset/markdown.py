@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from django.core.files.storage import default_storage
-from django.db import connection, transaction
+from django.db import transaction
 
 from apps.dataset.models import (
     ChunkingBatchStatus,
@@ -106,6 +106,8 @@ def assemble_source_markdown(document: SourceDocument, *, use_chunked: bool = Tr
         }
     segments = list(document.segments.order_by("page_number"))
     if not segments:
+        if use_chunked and document.chunks.exists():
+            return assemble_chunks_markdown(document)
         body = ""
         if document.markdown_file and document.markdown_file.name and default_storage.exists(document.markdown_file.name):
             with document.markdown_file.open("rb") as fh:
@@ -206,7 +208,7 @@ def _apply_page_seq_shift(document, page: int, *, gte_seq: int, delta: int) -> N
 def insert_source_chunk(*, document, text: str, page: int, after_chunk=None):
     """Chèn đoạn mới, dồn position và mã ppp các đoạn sau trên cùng trang."""
     from apps.dataset.catalog import format_chunk_code
-    from apps.dataset.models import SourceChunk
+    from apps.dataset.models import ChunkContentType, SourceChunk
 
     page = int(page)
     text = ensure_leading_page_comment(text, page)
@@ -232,10 +234,50 @@ def insert_source_chunk(*, document, text: str, page: int, after_chunk=None):
             page_number=page,
             page_seq=new_seq,
             chunk_code=format_chunk_code(document.catalog_code, page, new_seq),
+            content_type=ChunkContentType.TEXT,
             text_md=text or "",
         )
         chunk.save()
         return chunk
+
+
+def replace_chunk_with_parts(chunk, parts: list[str]) -> list:
+    """Thay đoạn bằng các phần đã tách; dồn position và mã ppp các đoạn sau cùng trang."""
+    from apps.dataset.catalog import format_chunk_code
+    from apps.dataset.models import ChunkContentType, SourceChunk
+
+    cleaned = [piece for piece in (parts or []) if (piece or "").strip()]
+    if not cleaned:
+        return [chunk]
+    document = chunk.document
+    with transaction.atomic():
+        _lock_document_chunks(document)
+        chunk = SourceChunk.objects.select_for_update().get(pk=chunk.pk)
+        page = int(chunk.page_number or 1)
+        base_pos = int(chunk.position)
+        base_seq = int(chunk.page_seq)
+        catalog = (document.catalog_code or "").strip()
+        extra = len(cleaned) - 1
+        if extra > 0:
+            _apply_position_shift(document, gte=base_pos + 1, delta=extra)
+            _apply_page_seq_shift(document, page, gte_seq=base_seq + 1, delta=extra)
+        chunk.text_md = ensure_leading_page_comment(cleaned[0], page)
+        chunk.save()
+        created = [chunk]
+        content_type = chunk.content_type or ChunkContentType.TEXT
+        for offset, text in enumerate(cleaned[1:], start=1):
+            row = SourceChunk(
+                document=document,
+                position=base_pos + offset,
+                page_number=page,
+                page_seq=base_seq + offset,
+                chunk_code=format_chunk_code(catalog, page, base_seq + offset),
+                content_type=content_type,
+                text_md=ensure_leading_page_comment(text, page),
+            )
+            row.save()
+            created.append(row)
+        return created
 
 
 def delete_source_chunk(chunk) -> None:
@@ -270,13 +312,46 @@ def split_break_chunks(content: str) -> list[str]:
     return parts
 
 
+def rebuild_document_chunks_from_content(document: SourceDocument, content: str) -> int:
+    """Tách MD đã gắn </break> thành SourceChunk (không đọc lại file nguồn)."""
+    from apps.dataset.catalog import format_chunk_code
+    from apps.dataset.models import ChunkContentType, SourceChunk
+    from apps.dataset.ragflow import invalidate_ragflow_chunks
+    from apps.dataset.tokens import count_tokens
+
+    parts = split_break_chunks(content)
+    catalog = (document.catalog_code or "").strip()
+    with transaction.atomic():
+        document.chunks.all().delete()
+        SourceChunk.objects.bulk_create(
+            [
+                SourceChunk(
+                    document=document,
+                    position=index,
+                    page_number=page,
+                    page_seq=seq,
+                    chunk_code=format_chunk_code(catalog, page, seq),
+                    content_type=ChunkContentType.TEXT,
+                    text_md=text,
+                    token_count=count_tokens(text),
+                )
+                for index, (text, page, seq) in enumerate(annotate_chunk_pages(parts), start=1)
+            ]
+        )
+    invalidate_ragflow_chunks(document)
+    return len(parts)
+
+
 def rebuild_document_chunks(document: SourceDocument) -> int:
     """Ghi lại các khối phân đoạn từ MD đã gắn </break>."""
     from apps.dataset.catalog import format_chunk_code
-    from apps.dataset.models import SourceChunk
+    from apps.dataset.models import ChunkContentType, SourceChunk
+    from apps.dataset.ragflow import invalidate_ragflow_chunks
+    from apps.dataset.tokens import count_tokens
 
     if not document_has_chunked_markdown(document):
         document.chunks.all().delete()
+        invalidate_ragflow_chunks(document)
         return 0
     content = assemble_source_markdown(document, use_chunked=True)
     parts = split_break_chunks(content)
@@ -291,12 +366,55 @@ def rebuild_document_chunks(document: SourceDocument) -> int:
                     page_number=page,
                     page_seq=seq,
                     chunk_code=format_chunk_code(catalog, page, seq),
+                    content_type=ChunkContentType.TEXT,
                     text_md=text,
+                    token_count=count_tokens(text),
                 )
                 for index, (text, page, seq) in enumerate(annotate_chunk_pages(parts), start=1)
             ]
         )
+    invalidate_ragflow_chunks(document)
     return len(parts)
+
+
+def resequence_document_chunks(document: SourceDocument) -> None:
+    """Đánh lại position, page_seq và mã sau khi xóa một phần phân đoạn."""
+    from apps.dataset.catalog import format_chunk_code
+    from apps.dataset.models import SourceChunk
+
+    rows = list(document.chunks.order_by("page_number", "page_seq", "position", "created_at"))
+    if not rows:
+        return
+    for index, chunk in enumerate(rows, start=1):
+        chunk.position = 1_000_000 + index
+        chunk.chunk_code = f"__tmp_{chunk.pk.hex}_{index}"
+    SourceChunk.objects.bulk_update(rows, ["position", "chunk_code"])
+    seq_by_page: dict[int, int] = {}
+    catalog = (document.catalog_code or "").strip()
+    for index, chunk in enumerate(rows, start=1):
+        page = int(chunk.page_number or 1)
+        seq_by_page[page] = seq_by_page.get(page, 0) + 1
+        chunk.position = index
+        chunk.page_seq = seq_by_page[page]
+        chunk.chunk_code = format_chunk_code(catalog, page, chunk.page_seq)
+    SourceChunk.objects.bulk_update(rows, ["position", "page_seq", "chunk_code"])
+
+
+def delete_matching_source_chunks(document, *, token_from=None, token_to=None) -> int:
+    """Xóa các đoạn khớp khoảng token; giữ các đoạn còn lại và đánh lại mã."""
+    from apps.dataset.models import SourceChunk
+
+    qs = SourceChunk.objects.filter(document=document)
+    if token_from is not None:
+        qs = qs.filter(token_count__gte=token_from)
+    if token_to is not None:
+        qs = qs.filter(token_count__lte=token_to)
+    count = qs.count()
+    if not count:
+        return 0
+    qs.delete()
+    resequence_document_chunks(document)
+    return count
 
 
 def renumber_document_chunks(document: SourceDocument) -> None:
@@ -313,6 +431,19 @@ def renumber_document_chunks(document: SourceDocument) -> None:
     SourceChunk.objects.bulk_update(rows, ["position"])
 
 
+def assemble_chunks_markdown(document: SourceDocument) -> str:
+    """Ghép phân đoạn hiện tại (kể cả sau resize) thành MD, cách nhau bằng </break>."""
+    parts = [
+        (chunk.text_md or "").strip()
+        for chunk in document.chunks.order_by("position")
+    ]
+    parts = [piece for piece in parts if piece]
+    if not parts:
+        return ""
+    body = "\n</break>\n".join(parts)
+    return normalize_chunked_export(f"# {document.title}\n\n{body}\n")
+
+
 def source_markdown_content(document: SourceDocument) -> str:
     if document_has_chunked_markdown(document):
         return assemble_source_markdown(document, use_chunked=True)
@@ -320,29 +451,27 @@ def source_markdown_content(document: SourceDocument) -> str:
 
 
 def purge_source_chunking(document: SourceDocument) -> int:
-    """Xóa mọi lần phân đoạn bằng SQL — không load text_md vào RAM."""
+    """Xóa mọi lần phân đoạn, trang đã cắt và khối SourceChunk."""
     from apps.dataset.models import SourceChunk
+    from apps.dataset.ragflow import invalidate_ragflow_chunks
 
-    SourceChunk.objects.filter(document=document).delete()
-    n = SourceChunkingBatch.objects.filter(document=document).count()
-    if not n:
-        return 0
-    qn = connection.ops.quote_name
-    parent_table = qn(SourceChunkingBatch._meta.db_table)
-    parent_pk = qn(SourceChunkingBatch._meta.pk.column)
-    doc_col = qn(SourceChunkingBatch._meta.get_field("document").column)
-    child_table = qn(SourceChunkedText._meta.db_table)
-    child_fk = qn(SourceChunkedText._meta.get_field("batch").column)
     with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute(f"LOCK TABLE {child_table}, {parent_table} IN ACCESS EXCLUSIVE MODE")
-            cursor.execute(
-                f"DELETE FROM {child_table} WHERE {child_fk} IN "
-                f"(SELECT {parent_pk} FROM {parent_table} WHERE {doc_col} = %s)",
-                [document.pk],
-            )
-            cursor.execute(
-                f"DELETE FROM {parent_table} WHERE {doc_col} = %s",
-                [document.pk],
-            )
+        n = SourceChunkingBatch.objects.filter(document=document).count()
+        page_qs = SourceChunkedText.objects.filter(batch__document=document)
+        batch_qs = SourceChunkingBatch.objects.filter(document=document)
+        chunk_qs = SourceChunk.objects.filter(document=document)
+        page_qs._raw_delete(page_qs.db)
+        batch_qs._raw_delete(batch_qs.db)
+        chunk_qs._raw_delete(chunk_qs.db)
+    if (
+        SourceChunkingBatch.objects.filter(document=document).exists()
+        or SourceChunk.objects.filter(document=document).exists()
+        or SourceChunkedText.objects.filter(batch__document=document).exists()
+    ):
+        raise RuntimeError("Không xóa hết phân đoạn — thử lại.")
+    try:
+        invalidate_ragflow_chunks(document)
+    except Exception:
+        pass
+    document.touch()
     return n

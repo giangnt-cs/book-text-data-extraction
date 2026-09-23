@@ -5,7 +5,7 @@ from django import forms
 from apps.documents.classification import BOOK_CLASS_FIELDS
 from apps.documents.models import ClassificationTerm
 
-from .models import RAGFlowConfig, SourceChunk, SourceDocument
+from .models import ImageChunk, RAGFlowConfig, RAGFlowImageConfig, RAGFlowTextConfig, SourceChunk, SourceDocument
 
 
 def _term_label(term: ClassificationTerm) -> str:
@@ -22,6 +22,8 @@ class SourceDocumentAdminForm(forms.ModelForm):
             "ragflow_status",
             "ragflow_error",
             "ragflow_synced_at",
+            "ragflow_match_status",
+            "ragflow_match_detail",
         )
 
     def __init__(self, *args, **kwargs):
@@ -118,6 +120,16 @@ class SourceChunkAddForm(SourceChunkAdminForm):
         return cleaned
 
 
+_RAGFLOW_WIDGETS = {
+    "api_key": forms.PasswordInput(render_value=True, attrs={"autocomplete": "new-password"}),
+    "base_url": forms.TextInput(attrs={"placeholder": "http://host:80"}),
+    "dataset_id": forms.TextInput(attrs={"placeholder": "ID knowledge base chữ trên RAGFlow"}),
+    "image_dataset_id": forms.TextInput(attrs={"placeholder": "ID knowledge base hình trên RAGFlow"}),
+    "meta_timeout": forms.NumberInput(attrs={"min": "1"}),
+    "chunk_timeout": forms.NumberInput(attrs={"min": "1"}),
+}
+
+
 class RAGFlowConfigForm(forms.ModelForm):
     class Meta:
         model = RAGFlowConfig
@@ -125,17 +137,11 @@ class RAGFlowConfigForm(forms.ModelForm):
             "base_url",
             "api_key",
             "dataset_id",
+            "image_dataset_id",
             "meta_timeout",
             "chunk_timeout",
-            "embed_prefix",
         )
-        widgets = {
-            "api_key": forms.PasswordInput(render_value=True, attrs={"autocomplete": "new-password"}),
-            "base_url": forms.TextInput(attrs={"placeholder": "http://host:80"}),
-            "dataset_id": forms.TextInput(attrs={"placeholder": "ID knowledge base trên RAGFlow"}),
-            "meta_timeout": forms.NumberInput(attrs={"min": "1"}),
-            "chunk_timeout": forms.NumberInput(attrs={"min": "1"}),
-        }
+        widgets = _RAGFLOW_WIDGETS
 
     def clean_base_url(self):
         url = (self.cleaned_data.get("base_url") or "").strip().rstrip("/")
@@ -146,8 +152,36 @@ class RAGFlowConfigForm(forms.ModelForm):
     def clean_dataset_id(self):
         return (self.cleaned_data.get("dataset_id") or "").strip()
 
-    def clean_embed_prefix(self):
-        prefix = self.cleaned_data.get("embed_prefix")
-        if prefix is None:
-            return "Passage: "
-        return prefix
+    def clean_image_dataset_id(self):
+        return (self.cleaned_data.get("image_dataset_id") or "").strip()
+
+
+class RAGFlowTextConfigForm(RAGFlowConfigForm):
+    class Meta(RAGFlowConfigForm.Meta):
+        model = RAGFlowTextConfig
+        fields = ("base_url", "api_key", "dataset_id", "meta_timeout", "chunk_timeout")
+
+
+class RAGFlowImageConfigForm(RAGFlowConfigForm):
+    class Meta(RAGFlowConfigForm.Meta):
+        model = RAGFlowImageConfig
+        fields = ("base_url", "api_key", "image_dataset_id", "meta_timeout", "chunk_timeout")
+
+
+class ImageChunkAdminForm(forms.ModelForm):
+    class Meta:
+        model = ImageChunk
+        fields = ("text_md",)
+        widgets = {"text_md": _TEXT_WIDGET}
+
+    def clean_text_md(self):
+        from apps.dataset.markdown import ensure_leading_page_comment, strip_break_markers
+
+        text = strip_break_markers(self.cleaned_data.get("text_md") or "")
+        page = 1
+        if self.instance and self.instance.pk:
+            page = self.instance.page_number or 1
+        text = ensure_leading_page_comment(text, page)
+        if not text:
+            raise forms.ValidationError("Nội dung không được trống.")
+        return text
