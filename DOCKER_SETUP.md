@@ -42,7 +42,7 @@ git clone <repo> && cd book-text-data-extraction
 cp .env.example .env
 ```
 
-Đặt file credentials vào thư mục `credentials/` (thư mục này không commit lên git), ví dụ:
+Đặt file JSON Service Account vào `credentials/` (xem hướng dẫn trong `credentials/README.md`). Chỉ commit README; file JSON bị gitignore. Ví dụ:
 
 ```text
 credentials/google-vision.json

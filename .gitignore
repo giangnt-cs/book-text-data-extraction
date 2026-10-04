@@ -16,7 +16,8 @@ ENV/
 
 # Secrets & local config
 .env
-credentials/
+credentials/*
+!credentials/README.md
 
 # Weights & local samples (large / copyrighted)
 models/*.pt
