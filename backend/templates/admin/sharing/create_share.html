@@ -1,0 +1,103 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .share-create-wrap { max-width: 40rem; margin: 0 auto; padding: 0 0 2rem; }
+  .share-create-card {
+    border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; padding: 1.25rem 1.4rem;
+  }
+  html.dark .share-create-card { background: #0f172a; border-color: #334155; }
+  .share-create-card p { margin: 0 0 1rem; font-size: 0.875rem; color: #475569; }
+  html.dark .share-create-card p { color: #94a3b8; }
+  .share-create-card label { display: block; font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.35rem; color: #334155; }
+  html.dark .share-create-card label { color: #e2e8f0; }
+  .share-create-card input[type=text],
+  .share-create-card input[type=password],
+  .share-create-card input[type=datetime-local] {
+    width: 100%; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-size: 0.875rem; margin-bottom: 0.85rem; box-sizing: border-box;
+  }
+  html.dark .share-create-card input {
+    background: #1e293b; border-color: #475569; color: #f1f5f9;
+  }
+  .share-create-books { margin: 0 0 1rem; padding-left: 1.15rem; font-size: 0.8125rem; max-height: 12rem; overflow: auto; }
+  .share-create-checks { display: flex; gap: 1rem; margin: 0 0 1rem; font-size: 0.875rem; }
+  .share-create-checks label { display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 500; margin: 0; }
+  .share-create-pass { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.85rem; }
+  .share-create-pass input { margin-bottom: 0 !important; }
+  .share-create-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .share-create-btn {
+    border: none; border-radius: 6px; padding: 0.45rem 0.95rem; font-size: 0.8125rem;
+    font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .share-create-btn--primary { background: #7c3aed; color: #fff; }
+  .share-create-btn--secondary { background: #e2e8f0; color: #334155; }
+  .errorlist { color: #b91c1c; font-size: 0.8125rem; margin: 0 0 0.75rem; padding-left: 1.1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="share-create-wrap">
+  <form method="post" id="share-create-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_book_share">
+    {% for obj in queryset %}
+    <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk }}">
+    {% endfor %}
+
+    <div class="share-create-card">
+      <p>Tạo liên kết chia sẻ cho <strong>{{ queryset|length }}</strong> sách:</p>
+      <ul class="share-create-books">
+        {% for obj in queryset %}
+        <li>{{ obj.title }}</li>
+        {% endfor %}
+      </ul>
+
+      {{ form.non_field_errors }}
+
+      <label for="id_expires_at">Hết hạn</label>
+      {{ form.expires_at.errors }}
+      <input type="datetime-local" name="expires_at" id="id_expires_at" required value="{{ expires_local }}">
+
+      <label>Nội dung được tải</label>
+      {{ form.allow_pdf.errors }}{{ form.allow_md.errors }}
+      <div class="share-create-checks">
+        <label><input type="checkbox" name="allow_pdf" value="1" {% if form.allow_pdf.value %}checked{% endif %}> PDF</label>
+        <label><input type="checkbox" name="allow_md" value="1" {% if form.allow_md.value %}checked{% endif %}> Markdown</label>
+      </div>
+
+      <label for="id_password">Mật khẩu (tự sinh — có thể sửa)</label>
+      {{ form.password.errors }}
+      <div class="share-create-pass">
+        <input type="text" name="password" id="id_password" required minlength="8" maxlength="64" value="{{ password_value }}">
+        <button type="button" class="share-create-btn share-create-btn--secondary" id="share-regen-password">Tạo lại</button>
+      </div>
+
+      <label for="id_note">Ghi chú (tuỳ chọn)</label>
+      {{ form.note.errors }}
+      <input type="text" name="note" id="id_note" maxlength="255" value="{{ form.note.value|default:'' }}">
+
+      <div class="share-create-actions">
+        <button type="submit" name="apply" value="1" class="share-create-btn share-create-btn--primary">Chia sẻ</button>
+        <a href="{{ changelist_url }}" class="share-create-btn share-create-btn--secondary">Hủy</a>
+      </div>
+    </div>
+  </form>
+</div>
+<script>
+(function () {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const input = document.getElementById("id_password");
+  const btn = document.getElementById("share-regen-password");
+  if (!input || !btn) return;
+  btn.addEventListener("click", function () {
+    let out = "";
+    const bytes = new Uint8Array(12);
+    crypto.getRandomValues(bytes);
+    for (let i = 0; i < bytes.length; i += 1) out += alphabet[bytes[i] % alphabet.length];
+    input.value = out;
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,176 @@
+{% extends "admin/change_form.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+(function () {
+  const CHUNK_URL = "{{ pdf_upload_chunk_url|escapejs }}";
+  const FINISH_URL = "{{ pdf_upload_finish_url|escapejs }}";
+  const CHUNK = 512 * 1024;
+  if (!CHUNK_URL || !FINISH_URL) return;
+
+  function qs(sel) { return document.querySelector(sel); }
+
+  function setStatus(text, isError) {
+    const input = qs("#id_pdf_file");
+    if (!input) return;
+    let el = document.getElementById("book-pdf-upload-status");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "book-pdf-upload-status";
+      el.style.marginTop = "0.4rem";
+      el.style.fontSize = "0.8125rem";
+      input.insertAdjacentElement("afterend", el);
+    }
+    el.textContent = text || "";
+    el.style.color = isError ? "#b91c1c" : "#64748b";
+  }
+
+  function explainUploadError(err, fileName) {
+    const raw = (err && (err.message || err.name)) ? String(err.message || err.name) : String(err || "");
+    const name = fileName ? "«" + fileName + "»" : "file";
+    const lower = raw.toLowerCase();
+    const timedOut =
+      lower.indexOf("timed") !== -1 ||
+      lower.indexOf("timeout") !== -1 ||
+      lower.indexOf("err_timed_out") !== -1;
+    if (timedOut) {
+      return (
+        "Mất kết nối khi tải " + name + " (timeout). " +
+        "Hãy thử lại; nếu file ở OneDrive thì tải về máy trước. " +
+        "File rất lớn nên dùng menu «Sách chờ nhập»."
+      );
+    }
+    const cloudLike =
+      (err && (err.name === "NotReadableError" || err.name === "NotFoundError" || err.name === "NetworkError")) ||
+      lower.indexOf("failed to fetch") !== -1 ||
+      lower.indexOf("networkerror") !== -1 ||
+      lower.indexOf("load failed") !== -1 ||
+      lower.indexOf("notreadable") !== -1 ||
+      lower.indexOf("not found") !== -1 ||
+      raw === "empty";
+    if (cloudLike) {
+      return (
+        "Không đọc được " + name + ". File có thể đang ở OneDrive và chưa tải về máy. " +
+        "Chuột phải file → Always keep on this device, đợi hết biểu tượng mây rồi thử lại."
+      );
+    }
+    return raw || ("Không tải được " + name + ".");
+  }
+
+  async function assertFileReadable(file) {
+    if (!file || !(file.size > 0)) {
+      const err = new Error("empty");
+      err.name = "NotReadableError";
+      throw err;
+    }
+    const probe = file.slice(0, Math.min(64, file.size));
+    const buf = await (probe.arrayBuffer ? probe.arrayBuffer() : new Response(probe).arrayBuffer());
+    if (!buf || buf.byteLength <= 0) {
+      const err = new Error("empty");
+      err.name = "NotReadableError";
+      throw err;
+    }
+  }
+
+  async function postForm(url, data, csrf) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        body: data,
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": csrf },
+      });
+    } catch (err) {
+      const wrapped = err instanceof Error ? err : new Error(String(err || "Failed to fetch"));
+      if (!wrapped.name || wrapped.name === "Error") wrapped.name = "NetworkError";
+      throw wrapped;
+    }
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (err) {
+      payload = {};
+    }
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || ("HTTP " + response.status));
+    }
+    return payload;
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const form = qs("#book_form") || qs("form#book_form") || qs("form[method='post']");
+    const input = qs("#id_pdf_file");
+    const csrfInput = qs("[name=csrfmiddlewaretoken]");
+    if (!form || !input || !csrfInput) return;
+
+    form.addEventListener("submit", function (event) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (form.dataset.pdfChunked === "1") return;
+      event.preventDefault();
+      const submitters = form.querySelectorAll("button[type=submit], input[type=submit]");
+      submitters.forEach(function (btn) { btn.disabled = true; });
+      (async function () {
+        try {
+          await assertFileReadable(file);
+          const total = Math.max(1, Math.ceil(file.size / CHUNK));
+          const session = (crypto.randomUUID && crypto.randomUUID()) ||
+            ("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+              const r = (Math.random() * 16) | 0;
+              const v = c === "x" ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            }));
+          for (let index = 0; index < total; index += 1) {
+            setStatus("Đang tải PDF… phần " + (index + 1) + "/" + total);
+            const blob = file.slice(index * CHUNK, (index + 1) * CHUNK);
+            const data = new FormData();
+            data.append("csrfmiddlewaretoken", csrfInput.value);
+            data.append("session", session);
+            data.append("index", String(index));
+            data.append("total", String(total));
+            data.append("filename", file.name);
+            data.append("chunk", new File([blob], "chunk.part", { type: "application/octet-stream" }));
+            await postForm(CHUNK_URL, data, csrfInput.value);
+          }
+          const finish = new FormData();
+          finish.append("csrfmiddlewaretoken", csrfInput.value);
+          finish.append("session", session);
+          finish.append("total", String(total));
+          finish.append("filename", file.name);
+          const done = await postForm(FINISH_URL, finish, csrfInput.value);
+          let token = qs("input[name=pdf_upload_token]");
+          if (!token) {
+            token = document.createElement("input");
+            token.type = "hidden";
+            token.name = "pdf_upload_token";
+            form.appendChild(token);
+          }
+          token.value = done.token || session;
+          let nameField = qs("input[name=pdf_upload_name]");
+          if (!nameField) {
+            nameField = document.createElement("input");
+            nameField.type = "hidden";
+            nameField.name = "pdf_upload_name";
+            form.appendChild(nameField);
+          }
+          nameField.value = file.name;
+          input.value = "";
+          input.removeAttribute("required");
+          form.dataset.pdfChunked = "1";
+          setStatus("Đã tải PDF. Đang lưu sách…");
+          if (typeof form.requestSubmit === "function") form.requestSubmit();
+          else form.submit();
+        } catch (err) {
+          submitters.forEach(function (btn) { btn.disabled = false; });
+          const message = explainUploadError(err, file.name);
+          setStatus(message, true);
+          window.alert(message);
+        }
+      })();
+    });
+  });
+})();
+</script>
+{% endblock %}

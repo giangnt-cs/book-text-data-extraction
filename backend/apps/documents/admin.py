@@ -511,6 +511,7 @@ class BookAdmin(ModelAdmin):
         "extract_images_bulk",
         "cancel_extract_images",
         "download_markdown_zip",
+        "create_book_share",
     ]
     actions_submit_line = ["run_ocr", "cancel_ocr", "approve_ocr", "unapprove_ocr", "run_classify"]
     fieldsets = (
@@ -1404,6 +1405,12 @@ class BookAdmin(ModelAdmin):
             url,
             count,
         )
+
+    @admin.action(description="Chia sẻ sách đã chọn")
+    def create_book_share(self, request, queryset):
+        from apps.sharing.admin import render_create_share
+
+        return render_create_share(self, request, queryset)
 
     @admin.action(description="Chạy OCR (detect → đánh dấu → Document AI → Markdown)")
     def start_processing(self, request, queryset):

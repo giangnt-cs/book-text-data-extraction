@@ -21,7 +21,9 @@ def ensure_default_roles(sender, **kwargs):
 
     admin.permissions.set(Permission.objects.all())
 
-    project_perms = Permission.objects.filter(content_type__app_label__in={"documents", "dataset", "layout", "llm"})
+    project_perms = Permission.objects.filter(
+        content_type__app_label__in={"documents", "dataset", "layout", "llm", "sharing"}
+    )
     operator.permissions.set(
         project_perms.filter(Q(codename__startswith="add_") | Q(codename__startswith="change_") | Q(codename__startswith="view_"))
     )

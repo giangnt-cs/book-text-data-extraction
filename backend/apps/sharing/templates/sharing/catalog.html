@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }}</title>
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #f8fafc; color: #0f172a; }
+    .wrap { max-width: 52rem; margin: 2.5rem auto; padding: 0 1rem 3rem; }
+    h1 { font-size: 1.2rem; margin: 0 0 0.35rem; }
+    .meta { font-size: 0.8125rem; color: #64748b; margin: 0 0 1.25rem; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    th, td { text-align: left; padding: 0.7rem 0.85rem; border-bottom: 1px solid #e2e8f0; font-size: 0.875rem; vertical-align: top; }
+    th { background: #f1f5f9; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: #475569; }
+    tr:last-child td { border-bottom: none; }
+    .btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    a.btn { display: inline-block; text-decoration: none; border-radius: 6px; padding: 0.35rem 0.7rem; font-size: 0.8125rem; font-weight: 650; color: #fff; background: #0f766e; }
+    a.btn-md { background: #7c3aed; }
+    .muted { color: #94a3b8; }
+    .author { color: #64748b; font-size: 0.8125rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Tài liệu được chia sẻ</h1>
+    <p class="meta">Hết hạn: {{ expires_at|date:"d/m/Y H:i" }} · Chỉ tải được các sách của liên kết này.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Sách</th>
+          <th>Tải</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            {{ row.book.title }}
+            {% if row.book.author %}<div class="author">{{ row.book.author }}</div>{% endif %}
+          </td>
+          <td>
+            <div class="btns">
+              {% if row.has_pdf %}
+              <a class="btn" href="{% url 'share_download' token=share.token item_id=row.item.pk kind='pdf' %}">PDF</a>
+              {% endif %}
+              {% if row.has_md %}
+              <a class="btn btn-md" href="{% url 'share_download' token=share.token item_id=row.item.pk kind='md' %}">Markdown</a>
+              {% endif %}
+              {% if not row.has_pdf and not row.has_md %}
+              <span class="muted">Không có file</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="2" class="muted">Không có sách trong lần chia sẻ này.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

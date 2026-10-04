@@ -1,0 +1,65 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .share-done-wrap { max-width: 40rem; margin: 0 auto; padding: 0 0 2rem; }
+  .share-done-card {
+    border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; padding: 1.25rem 1.4rem;
+  }
+  html.dark .share-done-card { background: #0f172a; border-color: #334155; }
+  .share-done-card p { margin: 0 0 0.75rem; font-size: 0.875rem; color: #475569; }
+  html.dark .share-done-card p { color: #94a3b8; }
+  .share-done-row { display: flex; gap: 0.5rem; align-items: center; margin: 0 0 0.75rem; }
+  .share-done-row input {
+    flex: 1; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-family: ui-monospace, monospace; font-size: 0.875rem;
+  }
+  html.dark .share-done-row input { background: #1e293b; border-color: #475569; color: #f1f5f9; }
+  .share-done-btn {
+    border: none; border-radius: 6px; padding: 0.45rem 0.8rem; font-size: 0.8125rem;
+    font-weight: 600; cursor: pointer; background: #0f766e; color: #fff; text-decoration: none; display: inline-block;
+  }
+  .share-done-btn--ghost { background: #e2e8f0; color: #334155; }
+  .share-done-warn { color: #b45309; font-size: 0.8125rem; }
+  .share-done-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="share-done-wrap">
+  <div class="share-done-card">
+    <p>Đã tạo lần chia sẻ <strong>{{ share.token }}</strong> ({{ share.items.count }} sách). Gửi link và mật khẩu cho người nhận.</p>
+    <p class="share-done-warn">Mật khẩu chỉ hiện lần này — hệ thống không lưu bản rõ.</p>
+
+    <label style="display:block;font-size:0.8125rem;font-weight:600;margin-bottom:0.3rem;">Short link</label>
+    <div class="share-done-row">
+      <input id="share-url" type="text" readonly value="{{ public_url }}">
+      <button type="button" class="share-done-btn" data-copy="share-url">Copy</button>
+    </div>
+
+    <label style="display:block;font-size:0.8125rem;font-weight:600;margin-bottom:0.3rem;">Mật khẩu</label>
+    <div class="share-done-row">
+      <input id="share-password" type="text" readonly value="{{ password }}">
+      <button type="button" class="share-done-btn" data-copy="share-password">Copy</button>
+    </div>
+
+    <div class="share-done-actions">
+      <a class="share-done-btn share-done-btn--ghost" href="{{ share_url }}">Xem lần chia sẻ</a>
+      <a class="share-done-btn share-done-btn--ghost" href="{{ changelist_url }}">Danh sách chia sẻ</a>
+    </div>
+  </div>
+</div>
+<script>
+document.querySelectorAll("[data-copy]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    const el = document.getElementById(btn.getAttribute("data-copy"));
+    if (!el) return;
+    navigator.clipboard.writeText(el.value).then(function () {
+      btn.textContent = "Đã copy";
+      setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}

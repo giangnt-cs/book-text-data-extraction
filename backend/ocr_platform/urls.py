@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.contrib import admin
-from django.urls import path, re_path
+from django.urls import include, path, re_path
 from django.views.generic import RedirectView
 from unfold.sites import UnfoldAdminSite
 
@@ -15,6 +15,7 @@ if not isinstance(admin.site, UnfoldAdminSite):
 
 urlpatterns = [
     path("healthz/", healthz, name="healthz"),
+    path("s/", include("apps.sharing.urls")),
     re_path(r"^rag/images/(?P<image_id>[^/]+)/?$", ragflow_page_image, name="ragflow_page_image"),
     path("admin/", admin.site.urls),
     path("", RedirectView.as_view(url="/admin/", permanent=False)),

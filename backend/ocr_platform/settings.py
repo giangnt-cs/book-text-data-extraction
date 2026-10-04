@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.documents.apps.DocumentsConfig",
     "apps.dataset.apps.DatasetConfig",
+    "apps.sharing.apps.SharingConfig",
     "apps.accounts.apps.AccountsConfig",
     "apps.storage.apps.StorageConfig",
     "apps.layout.apps.LayoutConfig",
@@ -168,6 +169,14 @@ CELERY_TASK_ROUTES = {
 if env.bool("CELERY_FORCE_CPU", default=False):
     CELERY_TASK_ROUTES = {"apps.documents.tasks.*": {"queue": "cpu"}}
 
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env.str("REDIS_URL", default="redis://localhost:6379/0"),
+        "KEY_PREFIX": "ocr",
+    }
+}
+
 UNFOLD = {
     "SITE_TITLE": "OCR Sách",
     "SITE_HEADER": "OCR Sách",
@@ -183,6 +192,11 @@ UNFOLD = {
                         "title": "Sách",
                         "icon": "menu_book",
                         "link": reverse_lazy("admin:documents_book_changelist"),
+                    },
+                    {
+                        "title": "Chia sẻ sách",
+                        "icon": "share",
+                        "link": reverse_lazy("admin:sharing_bookshare_changelist"),
                     },
                     {
                         "title": "Sách chờ nhập",

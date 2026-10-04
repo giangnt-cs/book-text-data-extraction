@@ -1,0 +1,34 @@
+{% extends "admin/llm/llm_feature_form.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+(function () {
+  function setGroupVisible(selector, visible) {
+    document.querySelectorAll(selector).forEach(function (el) {
+      const box = el.closest("fieldset") || el;
+      box.style.display = visible ? "" : "none";
+      box.querySelectorAll("input, textarea, select").forEach(function (inp) {
+        if (inp.dataset.wasRequired === "1" || inp.required) {
+          inp.dataset.wasRequired = "1";
+          inp.required = visible;
+        }
+      });
+    });
+  }
+  function toggle() {
+    const method = document.querySelector("#id_method");
+    if (!method) return;
+    const isPoincare = method.value === "poincare";
+    setGroupVisible(".chunking-llm", !isPoincare);
+    setGroupVisible(".chunking-poincare", isPoincare);
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    const method = document.querySelector("#id_method");
+    if (!method) return;
+    method.addEventListener("change", toggle);
+    toggle();
+  });
+})();
+</script>
+{% endblock %}
