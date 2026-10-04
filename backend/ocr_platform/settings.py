@@ -362,7 +362,7 @@ OLLAMA_MODEL = env.str("OLLAMA_MODEL", default="qwen2.5vl:32b")
 
 # Google Cloud (credentials dùng chung cho Vision & Document AI)
 GOOGLE_APPLICATION_CREDENTIALS = env.str("GOOGLE_APPLICATION_CREDENTIALS", default="")
-DOCUMENT_AI_PROJECT_ID = env.str("DOCUMENT_AI_PROJECT_ID", default="global-axe-477808-s9")
+DOCUMENT_AI_PROJECT_ID = env.str("DOCUMENT_AI_PROJECT_ID", default="")
 DOCUMENT_AI_LOCATION = env.str("DOCUMENT_AI_LOCATION", default="us")
 DOCUMENT_AI_OCR_PROCESSOR_ID = env.str("DOCUMENT_AI_OCR_PROCESSOR_ID", default="")
 DOCUMENT_AI_LAYOUT_PROCESSOR_ID = env.str("DOCUMENT_AI_LAYOUT_PROCESSOR_ID", default="")

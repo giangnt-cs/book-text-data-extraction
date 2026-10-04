@@ -16,7 +16,7 @@ ENV/
 
 # Secrets & local config
 .env
-credentials/*.json
+credentials/
 
 # Weights & local samples (large / copyrighted)
 models/*.pt

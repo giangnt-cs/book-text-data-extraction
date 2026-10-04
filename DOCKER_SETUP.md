@@ -42,10 +42,10 @@ git clone <repo> && cd book-text-data-extraction
 cp .env.example .env
 ```
 
-Đặt file credentials vào thư mục `credentials/`, ví dụ:
+Đặt file credentials vào thư mục `credentials/` (thư mục này không commit lên git), ví dụ:
 
 ```text
-credentials/global-axe-477808-s9-4570b736560b.json
+credentials/google-vision.json
 ```
 
 ### Biến môi trường quan trọng (`.env`)
@@ -61,10 +61,10 @@ CELERY_RESULT_BACKEND=redis://redis:6379/1
 CELERY_FORCE_CPU=0
 
 # Google credentials (mount vào /app/credentials trong container)
-GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/global-axe-477808-s9-4570b736560b.json
+GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/google-vision.json
 
 # Document AI
-DOCUMENT_AI_PROJECT_ID=global-axe-477808-s9
+DOCUMENT_AI_PROJECT_ID=
 DOCUMENT_AI_LOCATION=us
 DOCUMENT_AI_OCR_PROCESSOR_ID=          # để trống = tự tạo/tìm lần đầu
 DOCUMENT_AI_LAYOUT_PROCESSOR_ID=
